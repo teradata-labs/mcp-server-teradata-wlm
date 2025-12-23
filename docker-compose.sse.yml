@@ -1,0 +1,28 @@
+services:
+  tdwm-mcp:
+    image: tdwm-mcp:latest
+    container_name: tdwm-mcp-sse
+    environment:
+      - DATABASE_URI=teradatasql://username:password@hostname/database
+      - MCP_TRANSPORT=sse
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      # Connection resilience settings
+      - DB_MAX_RETRIES=3
+      - DB_INITIAL_BACKOFF=1.0
+      - DB_MAX_BACKOFF=30.0
+      # OAuth 2.1 Configuration (disabled by default)
+      - OAUTH_ENABLED=false
+      # Uncomment and configure these for OAuth support:
+      # - KEYCLOAK_URL=https://your-keycloak-server.com
+      # - KEYCLOAK_REALM=your-realm
+      # - KEYCLOAK_CLIENT_ID=tdwm-mcp
+      # - KEYCLOAK_CLIENT_SECRET=your-client-secret
+      # - OAUTH_RESOURCE_SERVER_URL=https://your-mcp-server.com
+      # - OAUTH_REQUIRED_SCOPES=tdwm:read,tdwm:monitor
+      # - OAUTH_VALIDATE_AUDIENCE=true
+      # - OAUTH_VALIDATE_SCOPES=true
+      # - OAUTH_REQUIRE_HTTPS=true
+    ports:
+      - "8981:8000"  # Alternative port for concurrent deployments
+    restart: unless-stopped
