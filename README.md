@@ -1,10 +1,9 @@
-# Teradata Data Warehouse Management (TDWM) MCP Server
+# Teradata Workload Management (WLM) MCP Server
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP](https://img.shields.io/badge/MCP-2025--06--18-green.svg)](https://modelcontextprotocol.io)
 
-A Model Control Protocol (MCP) server for Teradata Data Warehouse Management (TDWM) that provides comprehensive monitoring and management capabilities for Teradata systems.
+A Model Control Protocol (MCP) server for Teradata Workload Management (WLM) that provides comprehensive monitoring and management capabilities for Teradata systems.
 
 ## Features
 
