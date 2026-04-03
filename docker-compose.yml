@@ -8,18 +8,26 @@ services:
       - MCP_TRANSPORT=sse
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-      - DATABASE_URI=teradatasql://username:password@hostname/database
+      - DATABASE_URI=${DATABASE_URI:?Set DATABASE_URI in .env or environment}
+      # Authentication mechanism: TD2, LDAP, KRB5, TDNEGO, JWT
+      - DB_LOGMECH=${DB_LOGMECH:-TD2}
+      - DB_LOGDATA=${DB_LOGDATA:-}
+      # TLS/SSL: ALLOW, PREFER, REQUIRE, VERIFY-CA, VERIFY-FULL
+      - DB_SSL_MODE=${DB_SSL_MODE:-}
+      - DB_ENCRYPT_DATA=${DB_ENCRYPT_DATA:-true}
       # Connection resilience settings
-      - DB_MAX_RETRIES=3
-      - DB_INITIAL_BACKOFF=1.0
-      - DB_MAX_BACKOFF=30.0
+      - DB_MAX_RETRIES=${DB_MAX_RETRIES:-3}
+      - DB_INITIAL_BACKOFF=${DB_INITIAL_BACKOFF:-1.0}
+      - DB_MAX_BACKOFF=${DB_MAX_BACKOFF:-30.0}
+      # CORS
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-*}
       # OAuth 2.1 Configuration (disabled by default)
       - OAUTH_ENABLED=false
       # Uncomment and configure these for OAuth support:
       # - KEYCLOAK_URL=https://your-keycloak-server.com
       # - KEYCLOAK_REALM=your-realm
       # - KEYCLOAK_CLIENT_ID=tdwm-mcp
-      # - KEYCLOAK_CLIENT_SECRET=your-client-secret
+      # - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
       # - OAUTH_RESOURCE_SERVER_URL=https://your-mcp-server.com
       # - OAUTH_REQUIRED_SCOPES=tdwm:read,tdwm:monitor
       # - OAUTH_VALIDATE_AUDIENCE=true

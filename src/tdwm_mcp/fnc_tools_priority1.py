@@ -10,11 +10,12 @@ These tools implement Priority 1 capabilities from the enhancement recommendatio
 - Rule Management (add criteria, set limits, activate)
 """
 
+import asyncio
 import logging
 from typing import Any, List, Optional, Dict
 
 import mcp.types as types
-from .fnc_common import format_text_response, format_error_response, get_connection, ResponseType, with_connection_retry
+from .fnc_common import format_text_response, format_error_response, get_connection, _set_queryband, ResponseType, with_connection_retry
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +42,9 @@ async def create_system_throttle(
         classification_criteria: Optional list of classification criteria
             [{"description": "...", "type": "APPL", "value": "MyApp", "operator": "I"}]
     """
-    try:
-        tdconn = await get_connection()
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "create_system_throttle")
         cur = tdconn.cursor()
 
         # 1. Create system throttle
@@ -93,9 +95,13 @@ async def create_system_throttle(
         return format_text_response(
             f"Successfully created and activated system throttle '{throttle_name}' with limit {limit}"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error creating system throttle: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to create system throttle. Check server logs for details.")
 
 
 @with_connection_retry()
@@ -112,8 +118,9 @@ async def modify_throttle_limit(
         throttle_name: Name of the throttle to modify
         new_limit: New concurrency limit
     """
-    try:
-        tdconn = await get_connection()
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "modify_throttle_limit")
         cur = tdconn.cursor()
 
         logger.info(f"Modifying throttle {throttle_name} limit to {new_limit}")
@@ -133,9 +140,13 @@ async def modify_throttle_limit(
         return format_text_response(
             f"Successfully updated throttle '{throttle_name}' limit to {new_limit}"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error modifying throttle limit: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to modify throttle limit. Check server logs for details.")
 
 
 @with_connection_retry()
@@ -150,19 +161,18 @@ async def delete_throttle(
         ruleset_name: Name of the ruleset containing the throttle
         throttle_name: Name of the throttle to delete
     """
-    try:
-        tdconn = await get_connection()
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "delete_throttle")
         cur = tdconn.cursor()
 
         logger.info(f"Deleting throttle {throttle_name} from ruleset {ruleset_name}")
 
-        # Delete the rule
         cur.execute(
             """CALL TDWM.TDWMDeleteRule(?, ?)""",
             [ruleset_name, throttle_name]
         )
 
-        # Activate changes
         cur.execute(
             """CALL TDWM.TDWMActivateRuleset(?)""",
             [ruleset_name]
@@ -171,9 +181,13 @@ async def delete_throttle(
         return format_text_response(
             f"Successfully deleted throttle '{throttle_name}'"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error deleting throttle: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to delete throttle. Check server logs for details.")
 
 
 @with_connection_retry()
@@ -181,26 +195,19 @@ async def enable_throttle(
     ruleset_name: str,
     throttle_name: str
 ) -> ResponseType:
-    """
-    Enable (activate) a throttle rule.
-
-    Args:
-        ruleset_name: Name of the ruleset containing the throttle
-        throttle_name: Name of the throttle to enable
-    """
-    try:
-        tdconn = await get_connection()
+    """Enable (activate) a throttle rule."""
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "enable_throttle")
         cur = tdconn.cursor()
 
         logger.info(f"Enabling throttle {throttle_name}")
 
-        # Enable the rule (Operation 'E' = enable)
         cur.execute(
             """CALL TDWM.TDWMManageRule(?, ?, ?)""",
             [ruleset_name, throttle_name, 'E']
         )
 
-        # Activate changes
         cur.execute(
             """CALL TDWM.TDWMActivateRuleset(?)""",
             [ruleset_name]
@@ -209,9 +216,13 @@ async def enable_throttle(
         return format_text_response(
             f"Successfully enabled throttle '{throttle_name}'"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error enabling throttle: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to enable throttle. Check server logs for details.")
 
 
 @with_connection_retry()
@@ -219,26 +230,19 @@ async def disable_throttle(
     ruleset_name: str,
     throttle_name: str
 ) -> ResponseType:
-    """
-    Disable (deactivate) a throttle rule.
-
-    Args:
-        ruleset_name: Name of the ruleset containing the throttle
-        throttle_name: Name of the throttle to disable
-    """
-    try:
-        tdconn = await get_connection()
+    """Disable (deactivate) a throttle rule."""
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "disable_throttle")
         cur = tdconn.cursor()
 
         logger.info(f"Disabling throttle {throttle_name}")
 
-        # Disable the rule (Operation 'D' = disable)
         cur.execute(
             """CALL TDWM.TDWMManageRule(?, ?, ?)""",
             [ruleset_name, throttle_name, 'D']
         )
 
-        # Activate changes
         cur.execute(
             """CALL TDWM.TDWMActivateRuleset(?)""",
             [ruleset_name]
@@ -247,9 +251,13 @@ async def disable_throttle(
         return format_text_response(
             f"Successfully disabled throttle '{throttle_name}'"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error disabling throttle: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to disable throttle. Check server logs for details.")
 
 
 # ========== FILTER MANAGEMENT ==========
@@ -272,8 +280,9 @@ async def create_filter(
         classification_criteria: List of classification criteria
         action: 'E'=Exception (reject), 'A'=Abort
     """
-    try:
-        tdconn = await get_connection()
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "create_filter")
         cur = tdconn.cursor()
 
         # 1. Create filter
@@ -324,9 +333,13 @@ async def create_filter(
         return format_text_response(
             f"Successfully created and activated filter '{filter_name}'"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error creating filter: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to create filter. Check server logs for details.")
 
 
 @with_connection_retry()
@@ -334,26 +347,19 @@ async def delete_filter(
     ruleset_name: str,
     filter_name: str
 ) -> ResponseType:
-    """
-    Delete a filter rule.
-
-    Args:
-        ruleset_name: Name of the ruleset containing the filter
-        filter_name: Name of the filter to delete
-    """
-    try:
-        tdconn = await get_connection()
+    """Delete a filter rule."""
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "delete_filter")
         cur = tdconn.cursor()
 
         logger.info(f"Deleting filter {filter_name} from ruleset {ruleset_name}")
 
-        # Delete the rule
         cur.execute(
             """CALL TDWM.TDWMDeleteRule(?, ?)""",
             [ruleset_name, filter_name]
         )
 
-        # Activate changes
         cur.execute(
             """CALL TDWM.TDWMActivateRuleset(?)""",
             [ruleset_name]
@@ -362,9 +368,13 @@ async def delete_filter(
         return format_text_response(
             f"Successfully deleted filter '{filter_name}'"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error deleting filter: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to delete filter. Check server logs for details.")
 
 
 @with_connection_retry()
@@ -372,26 +382,19 @@ async def enable_filter(
     ruleset_name: str,
     filter_name: str
 ) -> ResponseType:
-    """
-    Enable (activate) a filter rule.
-
-    Args:
-        ruleset_name: Name of the ruleset containing the filter
-        filter_name: Name of the filter to enable
-    """
-    try:
-        tdconn = await get_connection()
+    """Enable (activate) a filter rule."""
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "enable_filter")
         cur = tdconn.cursor()
 
         logger.info(f"Enabling filter {filter_name}")
 
-        # Enable the rule
         cur.execute(
             """CALL TDWM.TDWMManageRule(?, ?, ?)""",
             [ruleset_name, filter_name, 'E']
         )
 
-        # Activate changes
         cur.execute(
             """CALL TDWM.TDWMActivateRuleset(?)""",
             [ruleset_name]
@@ -400,9 +403,13 @@ async def enable_filter(
         return format_text_response(
             f"Successfully enabled filter '{filter_name}'"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error enabling filter: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to enable filter. Check server logs for details.")
 
 
 @with_connection_retry()
@@ -410,26 +417,19 @@ async def disable_filter(
     ruleset_name: str,
     filter_name: str
 ) -> ResponseType:
-    """
-    Disable (deactivate) a filter rule.
-
-    Args:
-        ruleset_name: Name of the ruleset containing the filter
-        filter_name: Name of the filter to disable
-    """
-    try:
-        tdconn = await get_connection()
+    """Disable (deactivate) a filter rule."""
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "disable_filter")
         cur = tdconn.cursor()
 
         logger.info(f"Disabling filter {filter_name}")
 
-        # Disable the rule
         cur.execute(
             """CALL TDWM.TDWMManageRule(?, ?, ?)""",
             [ruleset_name, filter_name, 'D']
         )
 
-        # Activate changes
         cur.execute(
             """CALL TDWM.TDWMActivateRuleset(?)""",
             [ruleset_name]
@@ -438,9 +438,13 @@ async def disable_filter(
         return format_text_response(
             f"Successfully disabled filter '{filter_name}'"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error disabling filter: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to disable filter. Check server logs for details.")
 
 
 # ========== RULE MANAGEMENT ==========
@@ -465,20 +469,19 @@ async def add_classification_to_rule(
         classification_value: Value to match
         operator: 'I'=Inclusion, 'O'=ORing, 'IO'=Inclusion+ORing
     """
-    try:
-        tdconn = await get_connection()
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "add_classification_to_rule")
         cur = tdconn.cursor()
 
         logger.info(f"Adding classification {classification_type}={classification_value} to rule {rule_name}")
 
-        # Add classification
         cur.execute(
             """CALL TDWM.TDWMAddClassificationForRule(?, ?, ?, ?, ?, ?, ?)""",
             [ruleset_name, rule_name, description, classification_type,
              classification_value, operator, 'N']
         )
 
-        # Activate changes
         cur.execute(
             """CALL TDWM.TDWMActivateRuleset(?)""",
             [ruleset_name]
@@ -487,9 +490,13 @@ async def add_classification_to_rule(
         return format_text_response(
             f"Successfully added classification {classification_type}={classification_value} to rule '{rule_name}'"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error adding classification to rule: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to add classification. Check server logs for details.")
 
 
 @with_connection_retry()
@@ -516,20 +523,19 @@ async def add_subcriteria_to_target(
         subcriteria_value: Value for sub-criteria (e.g., '3600' for MINSTEPTIME)
         operator: 'I'=Inclusion
     """
-    try:
-        tdconn = await get_connection()
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "add_subcriteria_to_target")
         cur = tdconn.cursor()
 
         logger.info(f"Adding sub-criteria {subcriteria_type} to {target_type}={target_value} in rule {rule_name}")
 
-        # Add sub-criteria
         cur.execute(
             """CALL TDWM.TDWMAddClassificationForTarget(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [ruleset_name, rule_name, target_type, target_value, description,
              subcriteria_type, subcriteria_value, operator, 'N']
         )
 
-        # Activate changes
         cur.execute(
             """CALL TDWM.TDWMActivateRuleset(?)""",
             [ruleset_name]
@@ -538,28 +544,27 @@ async def add_subcriteria_to_target(
         return format_text_response(
             f"Successfully added sub-criteria {subcriteria_type} to {target_type}={target_value} in rule '{rule_name}'"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error adding sub-criteria: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to add sub-criteria. Check server logs for details.")
 
 
 @with_connection_retry()
 async def activate_ruleset(
     ruleset_name: str
 ) -> ResponseType:
-    """
-    Activate a ruleset to apply all pending changes.
-
-    Args:
-        ruleset_name: Name of the ruleset to activate
-    """
-    try:
-        tdconn = await get_connection()
+    """Activate a ruleset to apply all pending changes."""
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "activate_ruleset")
         cur = tdconn.cursor()
 
         logger.info(f"Activating ruleset {ruleset_name}")
 
-        # Activate ruleset
         cur.execute(
             """CALL TDWM.TDWMActivateRuleset(?)""",
             [ruleset_name]
@@ -568,9 +573,13 @@ async def activate_ruleset(
         return format_text_response(
             f"Successfully activated ruleset '{ruleset_name}'"
         )
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error activating ruleset: {e}")
-        return format_error_response(str(e))
+        return format_error_response("Failed to activate ruleset. Check server logs for details.")
 
 
 # ========== UTILITY FUNCTIONS ==========
@@ -578,32 +587,16 @@ async def activate_ruleset(
 @with_connection_retry()
 async def list_rulesets() -> ResponseType:
     """List all available rulesets."""
-    try:
-        tdconn = await get_connection()
+    tdconn = await get_connection()
+    def _run():
+        _set_queryband(tdconn, "list_rulesets")
         cur = tdconn.cursor()
-
         rows = cur.execute("""SELECT * FROM TDWM.Configurations""")
-        return format_text_response(list([row for row in rows.fetchall()]))
+        return format_text_response(list(rows.fetchall()))
+    try:
+        return await asyncio.to_thread(_run)
+    except ConnectionError:
+        raise
     except Exception as e:
         logger.error(f"Error listing rulesets: {e}")
-        return format_error_response(str(e))
-
-
-@with_connection_retry()
-async def get_active_ruleset_name() -> str:
-    """Get the currently active ruleset name."""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-
-        rows = cur.execute("""
-            SELECT ConfigName
-            FROM TDWM.Configurations
-            WHERE ActiveFlag = 'Y'
-            LIMIT 1
-        """)
-        result = rows.fetchone()
-        return result[0] if result else "MyFirstConfig"  # Default fallback
-    except Exception as e:
-        logger.warning(f"Error getting active ruleset, using default: {e}")
-        return "MyFirstConfig"
+        return format_error_response("Failed to list rulesets. Check server logs for details.")

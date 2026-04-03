@@ -7,17 +7,17 @@ This module contains shared utilities used by all tool function modules
 Includes:
 - Response formatting functions
 - Database connection management
+- Per-tool QueryBand helper
 - Type definitions
 - Retry utilities for connection resilience
 """
 
 import logging
-import os
 from typing import Any, List
-from urllib.parse import urlparse
 
 import mcp.types as types
 from .connection_manager import TeradataConnectionManager
+from .queryband import build_queryband
 from .retry_utils import (
     with_connection_retry,
     is_connection_error,
@@ -33,6 +33,7 @@ ResponseType = List[types.TextContent | types.ImageContent | types.EmbeddedResou
 # Global connection and database variables
 _connection_manager = None
 _db = ""
+_transport = "stdio"
 
 
 def set_tools_connection(connection_manager, db: str):
@@ -42,27 +43,25 @@ def set_tools_connection(connection_manager, db: str):
     _db = db
 
 
-# If the server was started without running `initialize_database()` (for
-# example when running tools in a subprocess or during quick tests), try to
-# construct a connection manager from the `DATABASE_URI` environment variable
-# so the tools don't immediately raise "Database connection not initialized".
-if not _connection_manager:
-    database_url = os.environ.get("DATABASE_URI")
-    if database_url:
-        try:
-            parsed_url = urlparse(database_url)
-            _db = parsed_url.path.lstrip('/')
-            # Create manager instance; actual network connection will be
-            # established lazily when `ensure_connection()` is called.
-            _connection_manager = TeradataConnectionManager(
-                database_url=database_url,
-                db_name=_db
-            )
-            logger.info("TeradataConnectionManager created from DATABASE_URI environment variable")
-        except Exception:
-            # If parsing fails, leave _connection_manager as None and let
-            # callers report the original error.
-            _connection_manager = None
+def set_transport(transport: str):
+    """Set the transport type for per-tool QueryBand."""
+    global _transport
+    _transport = transport
+
+
+def _set_queryband(tdconn, tool_name: str):
+    """Set QueryBand on connection for a tool call. Fails silently."""
+    try:
+        qb = build_queryband(
+            application="TDWM_MCP",
+            tool_name=tool_name,
+            transport=_transport,
+        )
+        cur = tdconn.cursor()
+        cur.execute(f"SET QUERY_BAND = '{qb}' FOR TRANSACTION")
+        cur.close()
+    except Exception:
+        pass  # QueryBand is best-effort
 
 
 def format_text_response(text: Any) -> ResponseType:
@@ -88,6 +87,9 @@ async def get_connection():
     global _connection_manager
 
     if not _connection_manager:
-        raise ConnectionError("Database connection not initialized")
+        raise ConnectionError(
+            "Database connection not initialized. "
+            "Please set DATABASE_URI environment variable or provide database URL."
+        )
 
     return await _connection_manager.ensure_connection()
