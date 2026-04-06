@@ -5,6 +5,7 @@ This module contains all the tool functions that are exposed through the MCP ser
 Each function implements a specific TDWM operation and returns properly formatted responses.
 """
 
+import asyncio
 import logging
 from typing import Any, List
 
@@ -16,9 +17,11 @@ from .oauth_context import require_oauth_authorization, get_oauth_error
 from .fnc_common import (
     format_text_response,
     format_error_response,
-    get_connection,
+    acquire_connection,
+    _set_queryband,
     ResponseType,
     set_tools_connection,
+    set_transport,
     with_connection_retry
 )
 
@@ -47,649 +50,741 @@ logger = logging.getLogger(__name__)
 @with_connection_retry()
 async def list_sessions() -> ResponseType:
     """Show my sessions"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT * FROM TABLE (monitormysessions()) as t1")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_sessions")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT * FROM TABLE (monitormysessions()) as t1")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing sessions: {e}")
+            return format_error_response("Failed to list sessions. Check server logs for details.")
 
 @with_connection_retry()
 async def monitor_amp_load() -> ResponseType:
     """Monitor AMP load"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT * FROM TABLE (MonitorAMPLoad()) AS t1")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing AMPs: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "monitor_amp_load")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT * FROM TABLE (MonitorAMPLoad()) AS t1")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error monitoring AMP load: {e}")
+            return format_error_response("Failed to monitor AMP load. Check server logs for details.")
 
 @with_connection_retry()
 async def monitor_awt() -> ResponseType:
-    """Monitor AWT (Amp Worker Tasks) resources """
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT * FROM TABLE (MonitorAWTResource(1,2,3,4)) AS t1")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing AMPs: {e}")
-        return format_error_response(str(e))
+    """Monitor AWT (Amp Worker Tasks) resources"""
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "monitor_awt")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT * FROM TABLE (MonitorAWTResource(1,2,3,4)) AS t1")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error monitoring AWT: {e}")
+            return format_error_response("Failed to monitor AWT resources. Check server logs for details.")
 
 @with_connection_retry()
 async def monitor_config() -> ResponseType:
-    """Monitor Teradata config """
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT t2.* FROM TABLE (MonitorVirtualConfig()) AS t2")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing AMPs: {e}")
-        return format_error_response(str(e))
+    """Monitor Teradata config"""
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "monitor_config")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT t2.* FROM TABLE (MonitorVirtualConfig()) AS t2")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error monitoring config: {e}")
+            return format_error_response("Failed to monitor config. Check server logs for details.")
 
 @with_connection_retry()
 async def list_resources() -> ResponseType:
     """Show physical resources"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT t2.* from table (MonitorPhysicalResource()) as t2")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_physical_resources")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT t2.* from table (MonitorPhysicalResource()) as t2")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing physical resources: {e}")
+            return format_error_response("Failed to list physical resources. Check server logs for details.")
 
 @with_connection_retry()
 async def identify_blocking() -> ResponseType:
     """Identify blocking users"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT 
-                IdentifyUser(blk1userid) as "blocking user",
-                IdentifyTable(blk1objtid) as "blocking table",
-                IdentifyDatabase(blk1objdbid) as "blocking db"
-            FROM TABLE (MonitorSession(-1,'*',0)) AS t1
-            WHERE Blk1UserId > 0""")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "identify_blocking")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT
+                    IdentifyUser(blk1userid) as "blocking user",
+                    IdentifyTable(blk1objtid) as "blocking table",
+                    IdentifyDatabase(blk1objdbid) as "blocking db"
+                FROM TABLE (MonitorSession(-1,'*',0)) AS t1
+                WHERE Blk1UserId > 0""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error identifying blocking: {e}")
+            return format_error_response("Failed to identify blocking sessions. Check server logs for details.")
 
 @with_connection_retry()
 async def abort_sessions_user(usr: str) -> ResponseType:
     """Abort sessions for a user {usr}"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT AbortSessions (HostId, UserName, SessionNo, 'Y', 'Y')
-            FROM TABLE (MonitorSession(-1, '*', 0)) AS t1
-            WHERE username= ?""", [usr])
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "abort_sessions_user")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT AbortSessions (HostId, UserName, SessionNo, 'Y', 'Y')
+                FROM TABLE (MonitorSession(-1, '*', 0)) AS t1
+                WHERE username= ?""", [usr])
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error aborting sessions for user: {e}")
+            return format_error_response("Failed to abort sessions. Check server logs for details.")
 
 @with_connection_retry()
 async def list_active_WD() -> ResponseType:
     """List active workloads (WD)"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""sel * from table (tdwm.TDWMActiveWDs()) as t1""")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "list_active_WD")
+            cur = tdconn.cursor()
+            rows = cur.execute("""sel * from table (tdwm.TDWMActiveWDs()) as t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error listing active workloads: {e}")
+            return format_error_response("Failed to list active workloads. Check server logs for details.")
 
 @with_connection_retry()
 async def list_WDs() -> ResponseType:
     """List workloads (WD)"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMListWDs('Y')) AS t1""")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "list_WD")
+            cur = tdconn.cursor()
+            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMListWDs('Y')) AS t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error listing workloads: {e}")
+            return format_error_response("Failed to list workloads. Check server logs for details.")
 
 
 @with_connection_retry()
 async def show_session_sql_steps(SessionNo: int) -> ResponseType:
     """Show sql steps for a session {SessionNo}"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
-        row = rows.fetchall()[0]
-        hostId = row[0]
-        logonPENo = row[1]
-        query = """
-            select 
-                SQLStep,
-                StepNum (format '99') Num,
-                Confidence (format '9') C,
-                EstRowCount (format '-99999999') ERC,
-                ActRowCount (format '99999999') ARC,
-                EstRowCountSkew (format '-99999999') ERCS,
-                ActRowCountSkew (format '99999999') ARCS,
-                EstRowCountSkewMatch (format '-99999999') ERCSM,
-                ActRowCountSkewMatch (format '99999999') ARCSM,
-                EstElapsedTime (format '99999') EET,
-                ActElapsedTime (format '99999') AET
-            from 
-                table (MonitorSQLSteps({hostId},{SessionNo},{logonPENo})) as t2
-            """.format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
-        cur1 = tdconn.cursor()
-        rows1 = cur1.execute(query)
-        return format_text_response(list([row for row in rows1.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    SessionNo = int(SessionNo)
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_sql_steps_for_session")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
+            row = rows.fetchall()[0]
+            hostId = int(row[0])
+            logonPENo = int(row[1])
+            query = """
+                select
+                    SQLStep,
+                    StepNum (format '99') Num,
+                    Confidence (format '9') C,
+                    EstRowCount (format '-99999999') ERC,
+                    ActRowCount (format '99999999') ARC,
+                    EstRowCountSkew (format '-99999999') ERCS,
+                    ActRowCountSkew (format '99999999') ARCS,
+                    EstRowCountSkewMatch (format '-99999999') ERCSM,
+                    ActRowCountSkewMatch (format '99999999') ARCSM,
+                    EstElapsedTime (format '99999') EET,
+                    ActElapsedTime (format '99999') AET
+                from
+                    table (MonitorSQLSteps({hostId},{SessionNo},{logonPENo})) as t2
+                """.format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
+            cur1 = tdconn.cursor()
+            rows1 = cur1.execute(query)
+            return format_text_response(list(rows1.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing SQL steps: {e}")
+            return format_error_response("Failed to show SQL steps. Check server logs for details.")
 
 @with_connection_retry()
 async def monitor_session_query_band(SessionNo: int) -> ResponseType:
     """Monitor query band for session {SessionNo}"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
-        row = rows.fetchall()[0]
-        hostId = row[0]
-        logonPENo = row[1]
-        query = """
-            SELECT MonitorQueryBand({hostId},{SessionNo},{logonPENo})
-            """.format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
-        cur1 = tdconn.cursor()
-        rows1 = cur1.execute(query)
-        return format_text_response(list([row for row in rows1.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    SessionNo = int(SessionNo)
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "monitor_session_query_band")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
+            row = rows.fetchall()[0]
+            hostId = int(row[0])
+            logonPENo = int(row[1])
+            query = """
+                SELECT MonitorQueryBand({hostId},{SessionNo},{logonPENo})
+                """.format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
+            cur1 = tdconn.cursor()
+            rows1 = cur1.execute(query)
+            return format_text_response(list(rows1.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error monitoring session query band: {e}")
+            return format_error_response("Failed to monitor session query band. Check server logs for details.")
 
 @with_connection_retry()
 async def show_session_sql_text(SessionNo: int) -> ResponseType:
     """Show sql text for a session {SessionNo}"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
-        row = rows.fetchall()[0]
-        hostId = row[0]
-        logonPENo = row[1]
-        query = "SELECT SQLTxt FROM TABLE (MonitorSQLText({hostId},{SessionNo},{logonPENo})) as t2".format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
-        cur1 = tdconn.cursor()
-        rows1 = cur1.execute(query)
-        return format_text_response(list([row for row in rows1.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    SessionNo = int(SessionNo)
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_sql_text_for_session")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
+            row = rows.fetchall()[0]
+            hostId = int(row[0])
+            logonPENo = int(row[1])
+            query = "SELECT SQLTxt FROM TABLE (MonitorSQLText({hostId},{SessionNo},{logonPENo})) as t2".format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
+            cur1 = tdconn.cursor()
+            rows1 = cur1.execute(query)
+            return format_text_response(list(rows1.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing SQL text: {e}")
+            return format_error_response("Failed to show SQL text. Check server logs for details.")
 
 @with_connection_retry()
 async def list_delayed_request() -> ResponseType:
     """List all of the delayed queries"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1""")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "list_delayed_request")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error listing delayed requests: {e}")
+            return format_error_response("Failed to list delayed requests. Check server logs for details.")
 
 
 @with_connection_retry()
 async def abort_delayed_request(SessionNo: int) -> ResponseType:
     """Abort delay requests on session {SessionNo}"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT TDWM.TDWMAbortDelayedRequest(HostId, SessionNo, RequestNo, 0)
-            FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1
-            WHERE SessionNo=?""",[SessionNo])
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "abort_delayed_request")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT TDWM.TDWMAbortDelayedRequest(HostId, SessionNo, RequestNo, 0)
+                FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1
+                WHERE SessionNo=?""",[SessionNo])
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error aborting delayed request: {e}")
+            return format_error_response("Failed to abort delayed request. Check server logs for details.")
 
 @with_connection_retry()
 async def list_utility_stats() -> ResponseType:
-    """List statistics for use utilitites"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT * FROM TABLE (TDWM.TDWMLoadUtilStatistics()) AS t1""")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    """List statistics for use utilities"""
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "list_utility_stats")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT * FROM TABLE (TDWM.TDWMLoadUtilStatistics()) AS t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error listing utility stats: {e}")
+            return format_error_response("Failed to list utility statistics. Check server logs for details.")
 
 @with_connection_retry()
 async def display_delay_queue(Type: str) -> ResponseType:
     """Display {Type} delay queue details"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        if Type.upper == "WORKLOAD":
-            rows = cur.execute("""
-                SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('W')) AS t1;""")
-        elif Type.upper == "SYSTEM":
-            rows = cur.execute("""
-                SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1""")
-        elif Type.upper == "UTILITY":
-            rows = cur.execute("""
-                SELECT * FROM TABLE (TDWM.TDWMGetDelayedUtilities()) AS t1""")
-        else:
-            rows = cur.execute("""
-                SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('A')) AS t1""")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "display_delay_queue")
+            cur = tdconn.cursor()
+            if Type.upper() == "WORKLOAD":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('W')) AS t1;""")
+            elif Type.upper() == "SYSTEM":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1""")
+            elif Type.upper() == "UTILITY":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE (TDWM.TDWMGetDelayedUtilities()) AS t1""")
+            else:
+                rows = cur.execute("""
+                    SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('A')) AS t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error displaying delay queue: {e}")
+            return format_error_response("Failed to display delay queue. Check server logs for details.")
 
 @with_connection_retry()
 async def release_delay_queue(SessionNo: int, UserName: str) -> ResponseType:
     """Releases a request or utility session in the queue for session or user"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        if SessionNo:
-            rows = cur.execute("""
-                SELECT TDWM.TDWMReleaseDelayedRequest(HostId, SessionNo, RequestNo, 0)
-                FROM TABLE (TDWMGetDelayedQueries('O')) AS t1
-                WHERE SessionNo=?""",[SessionNo])
-        elif UserName:
-            rows = cur.execute("""
-                SELECT TDWM.TDWMReleaseDelayedRequest(HostId, SessionNo, RequestNo, 0)
-                FROM TABLE (TDWMGetDelayedQueries('O')) AS t1
-                WHERE t1.Username=?""",[UserName])
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "release_delay_queue")
+            cur = tdconn.cursor()
+            if SessionNo:
+                rows = cur.execute("""
+                    SELECT TDWM.TDWMReleaseDelayedRequest(HostId, SessionNo, RequestNo, 0)
+                    FROM TABLE (TDWMGetDelayedQueries('O')) AS t1
+                    WHERE SessionNo=?""",[SessionNo])
+            elif UserName:
+                rows = cur.execute("""
+                    SELECT TDWM.TDWMReleaseDelayedRequest(HostId, SessionNo, RequestNo, 0)
+                    FROM TABLE (TDWMGetDelayedQueries('O')) AS t1
+                    WHERE t1.Username=?""",[UserName])
+            else:
+                return format_error_response("Either sessionNo or userName must be provided.")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error releasing delay queue: {e}")
+            return format_error_response("Failed to release delay queue. Check server logs for details.")
 
 @with_connection_retry()
 async def show_tdwm_summary() -> ResponseType:
     """Show workloads summary information"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMSummary()) AS t2""")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
-    
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_tdwm_summary")
+            cur = tdconn.cursor()
+            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMSummary()) AS t2""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing TDWM summary: {e}")
+            return format_error_response("Failed to show TDWM summary. Check server logs for details.")
+
 @with_connection_retry()
 async def show_trottle_statistics(type: str) -> ResponseType:
     """Show throttle statistics for {type}"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        if type.upper() == "ALL":
-            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('A')) AS t1""")
-        elif type.upper() == "QUERY":
-            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('Q')) AS t1""")
-        elif type.upper() == "SESSION":
-            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('S')) AS t1""")
-        elif type.upper() == "WORKLOAD":
-            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('W')) AS t1""")
-        else:
-            rows = cur.execute("""
-                    SELECT ObjectType(FORMAT 'x(10)'), rulename(FORMAT 'x(17)'),
-                        ObjectName(FORMAT 'x(13)'), active(FORMAT 'Z9'),
-                        throttlelimit as ThrLimit, delayed(FORMAT 'Z9'), throttletype as ThrType
-                    FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('A')) AS t1
-                    ORDER BY 1,2""")     
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
-    
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_trottle_statistics")
+            cur = tdconn.cursor()
+            if type.upper() == "ALL":
+                rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('A')) AS t1""")
+            elif type.upper() == "QUERY":
+                rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('Q')) AS t1""")
+            elif type.upper() == "SESSION":
+                rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('S')) AS t1""")
+            elif type.upper() == "WORKLOAD":
+                rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('W')) AS t1""")
+            else:
+                rows = cur.execute("""
+                        SELECT ObjectType(FORMAT 'x(10)'), rulename(FORMAT 'x(17)'),
+                            ObjectName(FORMAT 'x(13)'), active(FORMAT 'Z9'),
+                            throttlelimit as ThrLimit, delayed(FORMAT 'Z9'), throttletype as ThrType
+                        FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('A')) AS t1
+                        ORDER BY 1,2""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing throttle statistics: {e}")
+            return format_error_response("Failed to show throttle statistics. Check server logs for details.")
+
 @with_connection_retry()
 async def list_query_band(Type: str) -> ResponseType:
     """List query band for {Type}"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        if Type.upper == "TRANSACTION":
-            rows = cur.execute("""
-                SELECT * FROM TABLE(GetQueryBandPairs(1)) AS t1""")
-        elif Type.upper == "PROFILE":
-            rows = cur.execute("""
-                SELECT * FROM TABLE(GetQueryBandPairs(3)) AS t1""")
-        elif Type.upper == "SESSION":
-            rows = cur.execute("""
-                SELECT * FROM TABLE(GetQueryBandPairs(2)) AS t1""")
-        else:
-            rows = cur.execute("""
-                SELECT * FROM TABLE(GetQueryBandPairs(0)) AS t1""")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "list_query_band")
+            cur = tdconn.cursor()
+            if Type.upper() == "TRANSACTION":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE(GetQueryBandPairs(1)) AS t1""")
+            elif Type.upper() == "PROFILE":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE(GetQueryBandPairs(3)) AS t1""")
+            elif Type.upper() == "SESSION":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE(GetQueryBandPairs(2)) AS t1""")
+            else:
+                rows = cur.execute("""
+                    SELECT * FROM TABLE(GetQueryBandPairs(0)) AS t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error listing query band: {e}")
+            return format_error_response("Failed to list query band. Check server logs for details.")
 
 @with_connection_retry()
 async def show_query_log(User: str) -> ResponseType:
     """Show query log for user {User}"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-                sel * from dbc.qrylogv where upper(username)=upper(?) and trunc(collectTimeStamp) = trunc(date) ORDER BY queryid""", [User])
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_query_log")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                    sel * from dbc.qrylogv where upper(username)=upper(?) and trunc(collectTimeStamp) = trunc(date) ORDER BY queryid""", [User])
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing query log: {e}")
+            return format_error_response("Failed to show query log. Check server logs for details.")
 
 @with_connection_retry()
 async def show_cod_limits() -> ResponseType:
     """Show COD (Capacity On Demand) limits"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-                SELECT * FROM TABLE (TD_SYSFNLIB.TD_get_COD_Limits( ) ) As d""")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
-    
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_cod_limits")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                    SELECT * FROM TABLE (TD_SYSFNLIB.TD_get_COD_Limits( ) ) As d""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing COD limits: {e}")
+            return format_error_response("Failed to show COD limits. Check server logs for details.")
+
 @with_connection_retry()
 async def tdwm_list_clasification() -> ResponseType:
-    """List clasification types for workload (TASM) rule"""
+    """List classification types for workload (TASM) rule"""
     return format_text_response(list([(entry[1], entry[2], entry[3], entry[4]) for entry in TDWM_CLASIFICATION_TYPE]))
 
 @with_connection_retry()
 async def show_top_users(type: str) -> ResponseType:
     """Show {type} users using resources"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        if type.upper() == "TOP":
-            query = """
-                Sel top 15 Username (Format 'x(10)'), queryband(Format 'x(40)'),AppID, ClientAddr, StartTime, AMPCPUTime, QueryText from dbc.qrylogV
-                where ampcputime > .154 order by ampcputime desc"""
-        else:
-            query = """
-                Sel Username (Format 'x(10)'), queryband(Format 'x(40)'),AppID, ClientAddr, StartTime, AMPCPUTime, QueryText from dbc.qrylogV
-                where ampcputime > .154 order by ampcputime desc"""
-        rows = cur.execute(query)
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_top_users")
+            cur = tdconn.cursor()
+            if type.upper() == "TOP":
+                query = """
+                    Sel top 15 Username (Format 'x(10)'), queryband(Format 'x(40)'),AppID, ClientAddr, StartTime, AMPCPUTime, QueryText from dbc.qrylogV
+                    where ampcputime > .154 order by ampcputime desc"""
+            else:
+                query = """
+                    Sel Username (Format 'x(10)'), queryband(Format 'x(40)'),AppID, ClientAddr, StartTime, AMPCPUTime, QueryText from dbc.qrylogV
+                    where ampcputime > .154 order by ampcputime desc"""
+            rows = cur.execute(query)
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing top users: {e}")
+            return format_error_response("Failed to show top users. Check server logs for details.")
 
 @with_connection_retry()
 async def show_sw_event_log(type: str) -> ResponseType:
-    """Show {type} event log """
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        if type.upper() == "OPERATIONAL":
-            query = """SELECT top 20
-                TheDate, 
-                TheTime, 
-                Event_Tag, 
-                Category, 
-                Severity, 
-                Text,
-                PMA, 
-                Vproc, 
-                Partition, 
-                Task, 
-                TheFunction, 
-                SW_Version, 
-                Line 
-            FROM 
-                DBC.SW_EVENT_LOG  
-            WHERE
-                (trunc(TheDate) between trunc(date-7) and trunc(date)) and
-                theFunction IS NOT NULL AND
-                Text LIKE '%operational%'
-            ORDER BY 
-                TheDate desc, TheTime desc;"""
-        else:
-            query = """SELECT top 20
-                TheDate, 
-                TheTime, 
-                Event_Tag, 
-                Category, 
-                Severity, 
-                Text,
-                PMA, 
-                Vproc, 
-                Partition, 
-                Task, 
-                TheFunction, 
-                SW_Version, 
-                Line 
-            FROM 
-                DBC.SW_EVENT_LOG  
-            WHERE
-                (trunc(TheDate) between trunc(date-1) and trunc(date)) and
-                theFunction IS NOT NULL AND
-                Text LIKE '%operational%' or Text LIKE '%Event%'
-            ORDER BY 
-                TheDate desc, TheTime desc;"""
-        rows = cur.execute(query)
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    """Show {type} event log"""
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_sw_event_log")
+            cur = tdconn.cursor()
+            if type.upper() == "OPERATIONAL":
+                query = """SELECT top 20
+                    TheDate,
+                    TheTime,
+                    Event_Tag,
+                    Category,
+                    Severity,
+                    Text,
+                    PMA,
+                    Vproc,
+                    Partition,
+                    Task,
+                    TheFunction,
+                    SW_Version,
+                    Line
+                FROM
+                    DBC.SW_EVENT_LOG
+                WHERE
+                    (trunc(TheDate) between trunc(date-7) and trunc(date)) and
+                    theFunction IS NOT NULL AND
+                    Text LIKE '%operational%'
+                ORDER BY
+                    TheDate desc, TheTime desc;"""
+            else:
+                query = """SELECT top 20
+                    TheDate,
+                    TheTime,
+                    Event_Tag,
+                    Category,
+                    Severity,
+                    Text,
+                    PMA,
+                    Vproc,
+                    Partition,
+                    Task,
+                    TheFunction,
+                    SW_Version,
+                    Line
+                FROM
+                    DBC.SW_EVENT_LOG
+                WHERE
+                    (trunc(TheDate) between trunc(date-1) and trunc(date)) and
+                    theFunction IS NOT NULL AND
+                    Text LIKE '%operational%' or Text LIKE '%Event%'
+                ORDER BY
+                    TheDate desc, TheTime desc;"""
+            rows = cur.execute(query)
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing SW event log: {e}")
+            return format_error_response("Failed to show event log. Check server logs for details.")
 
 @with_connection_retry()
 async def show_tasm_statistics() -> ResponseType:
     """Show TASM statistics"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            select
-                TheDatePN (FORMAT'yy/mm/dd', TITLE '// //Date'),
-                TheHour (TITLE '// //Hour'),
-                TheMinute (TITLE '// //Minute'),
-                DayOfWeek (TITLE 'Day of Week'),
-                NodeID (TITLE '//Node ID'),
-                rulenamePN (TITLE '//Workload//Name'),
-                ppidPN (FORMAT '9', TITLE '// //PP ID'),
-                pgidPN (FORMAT 'ZZ9', TITLE '// //PG ID')
-            --	average(RelWgtPN) (FORMAT 'ZZ9', TITLE 'Active//Relative// Weight')
-                ,average(CPUPctPN) (FORMAT 'ZZ9.9', TITLE 'CPU//Util// %')
-                ,average(PhysicalIOPN) (FORMAT 'ZZ9.9', TITLE 'Avg//I/Os//per Sec')
-                ,average(PhysicalIOMBPN) (FORMAT 'ZZ9.9', TITLE 'Avg//I/O Mbytes//per Sec')
-                ,average(WorkMsgSendDelayCntPN) (FORMAT 'ZZ9.9', TITLE '# AWT Requests//Successfully Sent//per AMP')
-                ,average(NumRequestsPN) (FORMAT 'ZZ9.9', TITLE '# Tasks//Assigned AWTs//per AMP')
-                ,average(AwtReleasesPN) (FORMAT 'ZZ9.9', TITLE '# AWTs//Released//per AMP')
-                ,average(QLengthAmpAvgAPN) (FORMAT 'ZZ9.9', TITLE '# Requests//Still Waiting//for AWT')
-            --	,max(QLengthMaxMPN) (FORMAT 'ZZ9.9', TITLE 'Max #//Tasks Waiting//for AWT')
-                ,max(WorkMsgSendDelayMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Send-Side//Wait')
-                ,max(QWaitTimeMaxMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Receive-Side//Wait')
-                ,max(WorkMsgReceiveDelayMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Receive-Side//Still Waiting')
-                ,average(zeroifnull(WorkMsgSendDelayRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Send-Side//Wait')
-                ,average(zeroifnull(QwaitTimeRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Receive- Side//Wait')
-                ,average(zeroifnull(WorkMsgReceiveDelayRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Receive-Side//Still Waiting')
-                ,max(ServiceTimeMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Time//AWT Held')
-                ,average(zeroifnull(ServiceTimeAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Time//AWT Held')
-                ,max(WorkTimeInUseMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Time//AWT Held or Still Held')
-            --	,max(WorkTypeInUseMPN) (FORMAT 'ZZ9.9', TITLE 'Pseudo-Max//AWTs//In Use')
-                ,average(AwtUsedAPN) (FORMAT 'ZZ9.9', TITLE 'Avg//AWTs//In Use')
-            FROM
-            (
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_tasm_statistics")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
                 select
-                    t1.TheDate as TheDatePN
-                    ,extract(hour from t1.thetime) TheHour
-                    ,extract(Minute from t1.thetime) TheMinute
-                    ,CASE WHEN day_of_week = 1 THEN 'Sunday'
-                    WHEN day_of_week = 2 THEN 'Monday'
-                    WHEN day_of_week = 3 THEN 'Tuesday'
-                    WHEN day_of_week = 4 THEN 'Wednesday'
-                    WHEN day_of_week = 5 THEN 'Thursday'
-                    WHEN day_of_week = 6 THEN 'Friday'
-                    WHEN day_of_week = 7 THEN 'Saturday'
-                    END AS dayofweek,
-                    NodeId,
-                    rulename as
-                    rulenamePN,
-                    ppid as ppidPN,
-                    pgid as pgidPN
-            --		average(RelWgt) as RelWgtPN
-                    ,SUM(CPUPct) as CPUPctPN
-                    ,sum((PhysicalReadPerm +
-                    PhysicalWritePerm+PhysicalReadOther+PhysicalWriteOther)/(CentiSecs/100)) as
-                    PhysicalIOPN
-                    ,sum((PhysicalReadPermKB +
-                    PhysicalWritePermKB+PhysicalReadOtherKB+PhysicalWriteOtherKB)/(1024*CentiSecs/100)) as PhysicalIOMBPN
-                    ,sum(WorkMsgSendDelayCnt/AmpCount) as WorkMsgSendDelayCntPN
-                    ,sum(NumRequests/AmpCount) as NumRequestsPN
-                    ,sum(AwtReleases/AmpCount) as AwtReleasesPN
-                    ,sum(WorkMsgReceiveDelayCnt/AmpCount) as QLengthAmpAvgAPN
-            --		,max(WorkMsgReceiveDelayCntMax) as QLengthMaxMPN
-                    ,max(WorkMsgSendDelayMax) as WorkMsgSendDelayMPN
-                    ,max(WorkMsgReceiveDelayMax) as WorkMsgReceiveDelayMPN
-                    ,max(QWaitTimeMax) as QWaitTimeMaxMPN
-                    ,sum(WorkMsgSendDelayRequestAvg) as WorkMsgSendDelayRequestAPN
-                    ,sum(WorkMsgReceiveDelayRequestAvg) as WorkMsgReceiveDelayRequestAPN
-                    ,sum(QWaitTimeRequestAvg) as QWaitTimeRequestAPN
-                    ,sum(ServiceTimeRequestAvg) as ServiceTimeAPN
-                    ,max(ServiceTimeMax) as ServiceTimeMPN
-                    ,max(WorkTimeInUseMax) as WorkTimeInUseMPN
-                    ,sum(AWTUsedAvg/AmpCount) as AwtUsedAPN
-            --		,max(WorkTypeInUseMax/AmpCount) as WorkTypeInUseMPN
-                FROM 
-                    DBC.ResSpsView as T1
-                    LEFT OUTER JOIN
-                    tdwm.RuleDefs as T2
-                    on (T1.WDid = T2.RuleId AND T2.RuleType =5)
-                    inner join
-                    sys_calendar.CALENDAR b
-                    on calendar_date = thedate
-                where thedate = date and active >0 group by 1,2,3,4,5,6,7,8
-            ) as SumPNTbl
-            group by 1,2,3,4,5,6,7,8 order by 1,2,3,4,5,6,7""")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
-    
+                    TheDatePN (FORMAT'yy/mm/dd', TITLE '// //Date'),
+                    TheHour (TITLE '// //Hour'),
+                    TheMinute (TITLE '// //Minute'),
+                    DayOfWeek (TITLE 'Day of Week'),
+                    NodeID (TITLE '//Node ID'),
+                    rulenamePN (TITLE '//Workload//Name'),
+                    ppidPN (FORMAT '9', TITLE '// //PP ID'),
+                    pgidPN (FORMAT 'ZZ9', TITLE '// //PG ID')
+                    ,average(CPUPctPN) (FORMAT 'ZZ9.9', TITLE 'CPU//Util// %')
+                    ,average(PhysicalIOPN) (FORMAT 'ZZ9.9', TITLE 'Avg//I/Os//per Sec')
+                    ,average(PhysicalIOMBPN) (FORMAT 'ZZ9.9', TITLE 'Avg//I/O Mbytes//per Sec')
+                    ,average(WorkMsgSendDelayCntPN) (FORMAT 'ZZ9.9', TITLE '# AWT Requests//Successfully Sent//per AMP')
+                    ,average(NumRequestsPN) (FORMAT 'ZZ9.9', TITLE '# Tasks//Assigned AWTs//per AMP')
+                    ,average(AwtReleasesPN) (FORMAT 'ZZ9.9', TITLE '# AWTs//Released//per AMP')
+                    ,average(QLengthAmpAvgAPN) (FORMAT 'ZZ9.9', TITLE '# Requests//Still Waiting//for AWT')
+                    ,max(WorkMsgSendDelayMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Send-Side//Wait')
+                    ,max(QWaitTimeMaxMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Receive-Side//Wait')
+                    ,max(WorkMsgReceiveDelayMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Receive-Side//Still Waiting')
+                    ,average(zeroifnull(WorkMsgSendDelayRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Send-Side//Wait')
+                    ,average(zeroifnull(QwaitTimeRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Receive- Side//Wait')
+                    ,average(zeroifnull(WorkMsgReceiveDelayRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Receive-Side//Still Waiting')
+                    ,max(ServiceTimeMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Time//AWT Held')
+                    ,average(zeroifnull(ServiceTimeAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Time//AWT Held')
+                    ,max(WorkTimeInUseMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Time//AWT Held or Still Held')
+                    ,average(AwtUsedAPN) (FORMAT 'ZZ9.9', TITLE 'Avg//AWTs//In Use')
+                FROM
+                (
+                    select
+                        t1.TheDate as TheDatePN
+                        ,extract(hour from t1.thetime) TheHour
+                        ,extract(Minute from t1.thetime) TheMinute
+                        ,CASE WHEN day_of_week = 1 THEN 'Sunday'
+                        WHEN day_of_week = 2 THEN 'Monday'
+                        WHEN day_of_week = 3 THEN 'Tuesday'
+                        WHEN day_of_week = 4 THEN 'Wednesday'
+                        WHEN day_of_week = 5 THEN 'Thursday'
+                        WHEN day_of_week = 6 THEN 'Friday'
+                        WHEN day_of_week = 7 THEN 'Saturday'
+                        END AS dayofweek,
+                        NodeId,
+                        rulename as
+                        rulenamePN,
+                        ppid as ppidPN,
+                        pgid as pgidPN
+                        ,SUM(CPUPct) as CPUPctPN
+                        ,sum((PhysicalReadPerm +
+                        PhysicalWritePerm+PhysicalReadOther+PhysicalWriteOther)/(CentiSecs/100)) as
+                        PhysicalIOPN
+                        ,sum((PhysicalReadPermKB +
+                        PhysicalWritePermKB+PhysicalReadOtherKB+PhysicalWriteOtherKB)/(1024*CentiSecs/100)) as PhysicalIOMBPN
+                        ,sum(WorkMsgSendDelayCnt/AmpCount) as WorkMsgSendDelayCntPN
+                        ,sum(NumRequests/AmpCount) as NumRequestsPN
+                        ,sum(AwtReleases/AmpCount) as AwtReleasesPN
+                        ,sum(WorkMsgReceiveDelayCnt/AmpCount) as QLengthAmpAvgAPN
+                        ,max(WorkMsgSendDelayMax) as WorkMsgSendDelayMPN
+                        ,max(WorkMsgReceiveDelayMax) as WorkMsgReceiveDelayMPN
+                        ,max(QWaitTimeMax) as QWaitTimeMaxMPN
+                        ,sum(WorkMsgSendDelayRequestAvg) as WorkMsgSendDelayRequestAPN
+                        ,sum(WorkMsgReceiveDelayRequestAvg) as WorkMsgReceiveDelayRequestAPN
+                        ,sum(QWaitTimeRequestAvg) as QWaitTimeRequestAPN
+                        ,sum(ServiceTimeRequestAvg) as ServiceTimeAPN
+                        ,max(ServiceTimeMax) as ServiceTimeMPN
+                        ,max(WorkTimeInUseMax) as WorkTimeInUseMPN
+                        ,sum(AWTUsedAvg/AmpCount) as AwtUsedAPN
+                    FROM
+                        DBC.ResSpsView as T1
+                        LEFT OUTER JOIN
+                        tdwm.RuleDefs as T2
+                        on (T1.WDid = T2.RuleId AND T2.RuleType =5)
+                        inner join
+                        sys_calendar.CALENDAR b
+                        on calendar_date = thedate
+                    where thedate = date and active >0 group by 1,2,3,4,5,6,7,8
+                ) as SumPNTbl
+                group by 1,2,3,4,5,6,7,8 order by 1,2,3,4,5,6,7""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing TASM statistics: {e}")
+            return format_error_response("Failed to show TASM statistics. Check server logs for details.")
+
 @with_connection_retry()
 async def show_tasm_even_history() -> ResponseType:
     """Show TASM event history"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT entryts,
-                SUBSTR(entrykind,1,10) "kind",
-                SUBSTR (entryname,1,20) "name",
-                CAST (eventvalue as float format '999.9999') "evt value",
-                CAST (lastvalue as float format '999.9999') "last value",
-                spare2 "spare Int",
-                SUBSTR (activity,1,10) "activity id",
-                SUBSTR (activityname,1,20) "act name", seqno
-            FROM tdwmeventhistory order by entryts, seqno""")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_tasm_even_history")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT entryts,
+                    SUBSTR(entrykind,1,10) "kind",
+                    SUBSTR (entryname,1,20) "name",
+                    CAST (eventvalue as float format '999.9999') "evt value",
+                    CAST (lastvalue as float format '999.9999') "last value",
+                    spare2 "spare Int",
+                    SUBSTR (activity,1,10) "activity id",
+                    SUBSTR (activityname,1,20) "act name", seqno
+                FROM tdwmeventhistory order by entryts, seqno""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing TASM event history: {e}")
+            return format_error_response("Failed to show TASM event history. Check server logs for details.")
 
 @with_connection_retry()
 async def show_tasm_rule_history_red() -> ResponseType:
-    """what caused the system to enter the RED state"""
+    """What caused the system to enter the RED state"""
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_tasm_rule_history_red")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                WITH RECURSIVE
+                CausalAnalysis(EntryTS,
+                EntryKind, EntryID, EntryName, Activity,Activityid) AS
+                (
+                SELECT EntryTS, EntryKind, EntryID, EntryName, Activity, Activityid
+                FROM DBC.TDWMEventHistory
+                WHERE EntryKind = 'SYSCON' AND EntryName = 'RED' AND Activity = 'ACTIVE'
+                UNION ALL
+                SELECT Cause.EntryTS,Cause.EntryKind,Cause.EntryID,
+                    Cause.EntryName,Cause.Activity,Cause.Activityid
+                FROM CausalAnalysis Condition INNER JOIN DBC.TDWMEventHistory Cause
+                ON Condition.EntryKind = Cause.Activity AND
+                    Condition.EntryID = Cause.Activityid)
+                SELECT * FROM CausalAnalysis
+                ORDER BY 1 DESC""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing TASM rule history: {e}")
+            return format_error_response("Failed to show TASM rule history. Check server logs for details.")
+
+@with_connection_retry()
+async def get_active_ruleset_name() -> str:
+    """Get the currently active ruleset name."""
     try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            WITH RECURSIVE
-            CausalAnalysis(EntryTS,
-            EntryKind, EntryID, EntryName, Activity,Activityid) AS
-            (
-            SELECT EntryTS, EntryKind, EntryID, EntryName, Activity, Activityid
-            FROM DBC.TDWMEventHistory
-            WHERE EntryKind = 'SYSCON' AND EntryName = 'RED' AND Activity = 'ACTIVE'
-            UNION ALL
-            SELECT Cause.EntryTS,Cause.EntryKind,Cause.EntryID,
-                Cause.EntryName,Cause.Activity,Cause.Activityid
-            FROM CausalAnalysis Condition INNER JOIN DBC.TDWMEventHistory Cause
-            ON Condition.EntryKind = Cause.Activity AND
-                Condition.EntryID = Cause.Activityid)
-            SELECT * FROM CausalAnalysis
-            ORDER BY 1 DESC""")
-        return format_text_response(list([row for row in rows.fetchall()]))
+        async with acquire_connection() as tdconn:
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT ConfigName
+                FROM TDWM.Configurations
+                WHERE ActiveFlag = 'Y'
+                LIMIT 1
+            """)
+            result = rows.fetchone()
+            return result[0] if result else "MyFirstConfig"
     except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
-    
-@with_connection_retry()
-async def create_filter_rule() -> ResponseType:
-    """Create filter rule"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e: 
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
-
-@with_connection_retry()
-async def add_class_criteria() -> ResponseType:
-    """Add classification criteria """
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e: 
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
-
-@with_connection_retry()
-async def enable_filter_in_default() -> ResponseType:
-    """Enable the filter in the default state"""
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e: 
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
-    
-@with_connection_retry()
-async def enable_filter_rule() -> ResponseType:
-    """Enable the filter rule """
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e: 
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
-
-@with_connection_retry()
-async def activate_rulset(RuleName: str) -> ResponseType:
-    """Activate the {RuleName} ruleset with the new filter rule. """
-    try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("")
-        return format_text_response(list([row for row in rows.fetchall()]))
-    except Exception as e: 
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response(str(e))
+        logger.warning(f"Error getting active ruleset, using default: {e}")
+        return "MyFirstConfig"
 
 
 # --- MCP Handler Functions ---
@@ -725,7 +820,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "properties": {},
             },
         ),
-          types.Tool(
+        types.Tool(
             name="monitor_awt",
             description="Monitor AMP Worker Task (AWT) resource usage. AWTs are the task slots that execute query operations. Use this to check if task slots are exhausted (causing query delays) or to understand concurrency limits. Returns current AWT usage, available slots, and task queue depth.",
             inputSchema={
@@ -795,7 +890,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="abort_sessions_user",
-            description="⚠️ TERMINATES all active sessions for a specified user. This immediately kills all running queries for that user. Use cautiously for emergency situations like runaway queries or when a user's sessions must be stopped. IMPORTANT: This cannot be undone and will rollback any uncommitted work. Requires user parameter.",
+            description="TERMINATES all active sessions for a specified user. This immediately kills all running queries for that user. Use cautiously for emergency situations like runaway queries or when a user's sessions must be stopped. IMPORTANT: This cannot be undone and will rollback any uncommitted work. Requires user parameter.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -817,7 +912,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="abort_delayed_request",
-            description="⚠️ CANCEL and permanently abort a delayed query in the queue. The query will not execute and will be terminated. Use this to remove unnecessary or problematic queries from the queue. Requires sessionNo parameter. IMPORTANT: This cannot be undone - the query will need to be resubmitted if needed.",
+            description="CANCEL and permanently abort a delayed query in the queue. The query will not execute and will be terminated. Use this to remove unnecessary or problematic queries from the queue. Requires sessionNo parameter. IMPORTANT: This cannot be undone - the query will need to be resubmitted if needed.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -868,7 +963,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": [],
             },
-        ), 
+        ),
         types.Tool(
             name="show_tdwm_summary",
             description="Display a summary dashboard of workload distribution across the system. Shows how queries and resources are distributed among different workloads. Use this to understand workload balance, verify classification is working correctly, or identify which workloads are consuming the most resources. Returns query counts, resource usage, and distribution metrics by workload.",
@@ -876,7 +971,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "type": "object",
                 "properties": {},
             },
-        ),       
+        ),
         types.Tool(
             name="show_trottle_statistics",
             description="Display throttle statistics showing how throttles are managing query concurrency. Valid types: 'ALL' (all throttles), 'QUERY' (query-level throttles), 'SESSION' (session-level throttles), or 'WORKLOAD' (workload-level throttles). Use this to analyze throttle effectiveness, identify over-throttling, or verify throttle limits are working. Returns throttle names, limits, current usage, and delay counts.",
@@ -904,7 +999,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": [],
             },
-        ),   
+        ),
         types.Tool(
             name="monitor_session_query_band",
             description="Display the query band settings for a specific session. Use this to see how a particular session is tagged, verify application is setting query bands correctly, or troubleshoot why a query is being classified into the wrong workload. Requires sessionNo parameter. Returns all query band name-value pairs for that session.",
@@ -918,7 +1013,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["sessionNo"],
             },
-        ),  
+        ),
         types.Tool(
             name="show_query_log",
             description="Display historical query log (DBQL) for a specific user. Shows past query execution including SQL text, execution times, resource consumption, and performance metrics. Use this to analyze user query patterns, identify frequently-slow queries, or investigate historical performance issues. Requires user parameter. Returns query history with timestamps, SQL, runtime, CPU time, and I/O statistics.",
@@ -932,7 +1027,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["user"],
             },
-        ), 
+        ),
         types.Tool(
             name="show_cod_limits",
             description="Display Capacity on Demand (COD) resource limits and usage. COD allows temporary capacity increases beyond base system. Use this for capacity planning, checking if temporary capacity is available, or monitoring COD resource consumption. Returns COD limits, current usage, and available temporary capacity.",
@@ -1001,52 +1096,6 @@ async def handle_list_tools() -> list[types.Tool]:
                 "properties": {},
             },
         ),
-        types.Tool(
-            name="create_filter_rule",
-            description="⚠️ DEPRECATED/STUB: This is a legacy placeholder. Use 'create_filter' from Priority 1 Configuration Management tools instead. This function has no implementation and will not work.",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-        ),
-        types.Tool(
-            name="add_class_criteria",
-            description="⚠️ DEPRECATED/STUB: This is a legacy placeholder. Use 'add_classification_to_rule' from Priority 1 Configuration Management tools instead. This function has no implementation and will not work.",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-        ),
-        types.Tool(
-            name="enable_filter_in_default",
-            description="⚠️ DEPRECATED/STUB: This is a legacy placeholder. Use 'create_filter' and 'enable_filter' from Priority 1 Configuration Management tools instead. This function has no implementation and will not work.",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-        ),
-        types.Tool(
-            name="enable_filter_rule",
-            description="⚠️ DEPRECATED/STUB: This is a legacy placeholder. Use 'enable_filter' from Priority 1 Configuration Management tools instead. This function has no implementation and will not work.",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-        ),
-        types.Tool(
-            name="activate_rulset",
-            description="⚠️ DEPRECATED: This is a legacy stub. Use 'activate_ruleset' (note correct spelling) from Priority 1 Configuration Management tools instead. This function has minimal implementation.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "RuleName": {
-                        "type": "string",
-                        "description": "Name of the ruleset to activate",
-                    },
-                },
-                "required": ["RuleName"],
-            },
-        ),
         # ========== Priority 1 Configuration Management Tools ==========
         types.Tool(
             name="create_system_throttle",
@@ -1095,7 +1144,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="modify_throttle_limit",
-            description="Dynamically adjust the concurrency limit of an existing throttle without recreating it. Use this to increase/decrease throttle limits based on time of day, system load, or changing business needs (e.g., increase limit from 5 to 10 during off-peak hours, decrease back to 5 during business hours). REQUIRES: ruleset_name, throttle_name, new_limit. CHANGES REQUIRE ACTIVATION: Call activate_ruleset after modification. Common use case: React to performance issues by temporarily reducing concurrency, then restore when resolved.",
+            description="Dynamically adjust the concurrency limit of an existing throttle without recreating it. Use this to increase/decrease throttle limits based on time of day, system load, or changing business needs. REQUIRES: ruleset_name, throttle_name, new_limit. CHANGES REQUIRE ACTIVATION: Call activate_ruleset after modification.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1118,76 +1167,49 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="delete_throttle",
-            description="⚠️ PERMANENTLY DELETE a throttle rule from the ruleset configuration. Use this to remove obsolete throttles or clean up unused rules. The throttle will no longer limit query concurrency. REQUIRES: ruleset_name, throttle_name. CHANGES REQUIRE ACTIVATION: Call activate_ruleset after deletion. CAUTION: Deletion is permanent - recreate the throttle if needed later. Best practice: Disable the throttle first to test impact before permanent deletion.",
+            description="PERMANENTLY DELETE a throttle rule from the ruleset configuration. REQUIRES: ruleset_name, throttle_name. CHANGES REQUIRE ACTIVATION. CAUTION: Deletion is permanent.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "ruleset_name": {
-                        "type": "string",
-                        "description": "Ruleset name containing the throttle"
-                    },
-                    "throttle_name": {
-                        "type": "string",
-                        "description": "Name of the throttle to delete"
-                    }
+                    "ruleset_name": {"type": "string", "description": "Ruleset name containing the throttle"},
+                    "throttle_name": {"type": "string", "description": "Name of the throttle to delete"}
                 },
                 "required": ["ruleset_name", "throttle_name"]
             },
         ),
         types.Tool(
             name="enable_throttle",
-            description="Enable (activate) a previously disabled throttle rule to start enforcing its concurrency limits. Use this to temporarily turn on a throttle that was disabled, such as enabling a maintenance throttle during backup windows, activating seasonal throttles during peak periods, or re-enabling after testing. REQUIRES: ruleset_name, throttle_name. CHANGES REQUIRE ACTIVATION: Call activate_ruleset to apply. The throttle will begin limiting queries immediately after activation.",
+            description="Enable (activate) a previously disabled throttle rule. REQUIRES: ruleset_name, throttle_name. CHANGES REQUIRE ACTIVATION.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "ruleset_name": {
-                        "type": "string",
-                        "description": "Ruleset name containing the throttle"
-                    },
-                    "throttle_name": {
-                        "type": "string",
-                        "description": "Name of the throttle to enable"
-                    }
+                    "ruleset_name": {"type": "string", "description": "Ruleset name containing the throttle"},
+                    "throttle_name": {"type": "string", "description": "Name of the throttle to enable"}
                 },
                 "required": ["ruleset_name", "throttle_name"]
             },
         ),
         types.Tool(
             name="disable_throttle",
-            description="Disable (deactivate) a throttle rule to stop enforcing its concurrency limits without deleting it. Use this to temporarily turn off a throttle, such as disabling maintenance throttles after backup completes, removing limits during testing, or temporarily increasing system capacity. REQUIRES: ruleset_name, throttle_name. CHANGES REQUIRE ACTIVATION: Call activate_ruleset to apply. The throttle remains defined but won't limit queries until re-enabled.",
+            description="Disable (deactivate) a throttle rule without deleting it. REQUIRES: ruleset_name, throttle_name. CHANGES REQUIRE ACTIVATION.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "ruleset_name": {
-                        "type": "string",
-                        "description": "Ruleset name containing the throttle"
-                    },
-                    "throttle_name": {
-                        "type": "string",
-                        "description": "Name of the throttle to disable"
-                    }
+                    "ruleset_name": {"type": "string", "description": "Ruleset name containing the throttle"},
+                    "throttle_name": {"type": "string", "description": "Name of the throttle to disable"}
                 },
                 "required": ["ruleset_name", "throttle_name"]
             },
         ),
         types.Tool(
             name="create_filter",
-            description="Create a filter rule to BLOCK or REJECT queries matching specific criteria. Filters prevent certain queries from executing at all. Use this for maintenance windows (block all queries during backup), security restrictions (prevent specific users from querying sensitive tables), or preventing problematic query patterns (block full table scans on large tables). REQUIRES: ruleset_name, filter_name, description. OPTIONAL: classification_criteria (to target specific queries by user/app/table), action ('E'=Exception/reject with error message or 'A'=Abort query). CHANGES REQUIRE ACTIVATION: Call activate_ruleset to make live. ⚠️ CAUTION: Filters PREVENT query execution - verify criteria carefully to avoid blocking legitimate queries.",
+            description="Create a filter rule to BLOCK or REJECT queries matching specific criteria. REQUIRES: ruleset_name, filter_name, description. OPTIONAL: classification_criteria, action ('E'=Exception/reject, 'A'=Abort). CHANGES REQUIRE ACTIVATION. CAUTION: Filters PREVENT query execution.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "ruleset_name": {
-                        "type": "string",
-                        "description": "Ruleset name (e.g., 'MyFirstConfig')"
-                    },
-                    "filter_name": {
-                        "type": "string",
-                        "description": "Name for the new filter"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Description of filter purpose"
-                    },
+                    "ruleset_name": {"type": "string", "description": "Ruleset name"},
+                    "filter_name": {"type": "string", "description": "Name for the new filter"},
+                    "description": {"type": "string", "description": "Description of filter purpose"},
                     "classification_criteria": {
                         "type": "array",
                         "description": "List of classification criteria to match",
@@ -1201,164 +1223,95 @@ async def handle_list_tools() -> list[types.Tool]:
                             }
                         }
                     },
-                    "action": {
-                        "type": "string",
-                        "description": "Action: E=Exception (reject), A=Abort",
-                        "default": "E"
-                    }
+                    "action": {"type": "string", "description": "Action: E=Exception (reject), A=Abort", "default": "E"}
                 },
                 "required": ["ruleset_name", "filter_name", "description"]
             },
         ),
         types.Tool(
             name="delete_filter",
-            description="⚠️ PERMANENTLY DELETE a filter rule from the ruleset configuration. The filter will no longer block queries. Use this to remove obsolete filters or clean up unused rules. REQUIRES: ruleset_name, filter_name. CHANGES REQUIRE ACTIVATION: Call activate_ruleset after deletion. CAUTION: Deletion is permanent - recreate the filter if needed later. Previously blocked queries will be allowed to execute after filter deletion and activation.",
+            description="PERMANENTLY DELETE a filter rule. REQUIRES: ruleset_name, filter_name. CHANGES REQUIRE ACTIVATION.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "ruleset_name": {
-                        "type": "string",
-                        "description": "Ruleset name containing the filter"
-                    },
-                    "filter_name": {
-                        "type": "string",
-                        "description": "Name of the filter to delete"
-                    }
+                    "ruleset_name": {"type": "string", "description": "Ruleset name containing the filter"},
+                    "filter_name": {"type": "string", "description": "Name of the filter to delete"}
                 },
                 "required": ["ruleset_name", "filter_name"]
             },
         ),
         types.Tool(
             name="enable_filter",
-            description="Enable (activate) a previously disabled filter rule to start blocking matching queries. Use this to turn on filters for maintenance windows (enable before backup, disable after), activate time-based restrictions, or re-enable security filters after testing. REQUIRES: ruleset_name, filter_name. CHANGES REQUIRE ACTIVATION: Call activate_ruleset to apply. ⚠️ The filter will immediately block matching queries after activation - ensure timing is correct.",
+            description="Enable (activate) a previously disabled filter rule. REQUIRES: ruleset_name, filter_name. CHANGES REQUIRE ACTIVATION.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "ruleset_name": {
-                        "type": "string",
-                        "description": "Ruleset name containing the filter"
-                    },
-                    "filter_name": {
-                        "type": "string",
-                        "description": "Name of the filter to enable"
-                    }
+                    "ruleset_name": {"type": "string", "description": "Ruleset name containing the filter"},
+                    "filter_name": {"type": "string", "description": "Name of the filter to enable"}
                 },
                 "required": ["ruleset_name", "filter_name"]
             },
         ),
         types.Tool(
             name="disable_filter",
-            description="Disable (deactivate) a filter rule to stop blocking queries without deleting it. Use this to turn off filters after maintenance completes, remove temporary restrictions, or disable during testing. REQUIRES: ruleset_name, filter_name. CHANGES REQUIRE ACTIVATION: Call activate_ruleset to apply. The filter remains defined but won't block queries until re-enabled. Previously blocked queries will be allowed after disable and activation.",
+            description="Disable (deactivate) a filter rule without deleting it. REQUIRES: ruleset_name, filter_name. CHANGES REQUIRE ACTIVATION.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "ruleset_name": {
-                        "type": "string",
-                        "description": "Ruleset name containing the filter"
-                    },
-                    "filter_name": {
-                        "type": "string",
-                        "description": "Name of the filter to disable"
-                    }
+                    "ruleset_name": {"type": "string", "description": "Ruleset name containing the filter"},
+                    "filter_name": {"type": "string", "description": "Name of the filter to disable"}
                 },
                 "required": ["ruleset_name", "filter_name"]
             },
         ),
         types.Tool(
             name="add_classification_to_rule",
-            description="Add classification criteria to an existing rule (throttle, filter, or workload) to refine what queries it matches. Classification types include: USER (username), APPL (application name), TABLE (table name), QUERYBAND (query band tags), STMT (statement type like DDL/DML/SELECT), CLIENTADDR (IP address), and more. Use this to add additional matching conditions to rules, such as adding a second application to a throttle or adding user restrictions to a filter. REQUIRES: ruleset_name, rule_name, description, classification_type, classification_value. OPTIONAL: operator ('I'=Inclusion only this value, 'O'=ORing with other criteria, 'IO'=Both). CHANGES REQUIRE ACTIVATION: Call activate_ruleset to apply. Multiple classifications can be added to create complex matching logic.",
+            description="Add classification criteria to an existing rule (throttle, filter, or workload). Classification types: USER, APPL, TABLE, QUERYBAND, STMT, CLIENTADDR, etc. REQUIRES: ruleset_name, rule_name, description, classification_type, classification_value. OPTIONAL: operator ('I'=Inclusion, 'O'=ORing, 'IO'=Both). CHANGES REQUIRE ACTIVATION.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "ruleset_name": {
-                        "type": "string",
-                        "description": "Ruleset name"
-                    },
-                    "rule_name": {
-                        "type": "string",
-                        "description": "Name of the rule to modify"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Description of this classification"
-                    },
-                    "classification_type": {
-                        "type": "string",
-                        "description": "Type (USER, APPL, TABLE, QUERYBAND, etc.)"
-                    },
-                    "classification_value": {
-                        "type": "string",
-                        "description": "Value to match"
-                    },
-                    "operator": {
-                        "type": "string",
-                        "description": "Operator: I=Inclusion, O=ORing, IO=Both",
-                        "default": "I"
-                    }
+                    "ruleset_name": {"type": "string", "description": "Ruleset name"},
+                    "rule_name": {"type": "string", "description": "Name of the rule to modify"},
+                    "description": {"type": "string", "description": "Description of this classification"},
+                    "classification_type": {"type": "string", "description": "Type (USER, APPL, TABLE, QUERYBAND, etc.)"},
+                    "classification_value": {"type": "string", "description": "Value to match"},
+                    "operator": {"type": "string", "description": "Operator: I=Inclusion, O=ORing, IO=Both", "default": "I"}
                 },
                 "required": ["ruleset_name", "rule_name", "description", "classification_type", "classification_value"]
             },
         ),
         types.Tool(
             name="add_subcriteria_to_target",
-            description="Add sub-criteria to refine a target classification for advanced rule targeting. Sub-criteria types include: FTSCAN (detect full table scans), MINSTEPTIME (minimum estimated step time in seconds), MAXSTEPTIME (maximum step time), MINTOTALTIME (minimum total query time), JOIN (join type detection), MEMORY (memory usage level), and more. Use this for sophisticated rules like 'throttle only full table scans on LargeTable' or 'filter queries with estimated time > 1 hour'. REQUIRES: ruleset_name, rule_name, target_type (TABLE/DB/VIEW), target_value (e.g., 'myDB.LargeTable'), description, subcriteria_type. OPTIONAL: subcriteria_value (e.g., '3600' for MINSTEPTIME). CHANGES REQUIRE ACTIVATION. Example: Add FTSCAN to throttle full scans without affecting index-based queries on same table.",
+            description="Add sub-criteria to a target classification for advanced rule targeting. Sub-criteria types: FTSCAN, MINSTEPTIME, MAXSTEPTIME, JOIN, MEMORY. REQUIRES: ruleset_name, rule_name, target_type, target_value, description, subcriteria_type. CHANGES REQUIRE ACTIVATION.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "ruleset_name": {
-                        "type": "string",
-                        "description": "Ruleset name"
-                    },
-                    "rule_name": {
-                        "type": "string",
-                        "description": "Name of the rule"
-                    },
-                    "target_type": {
-                        "type": "string",
-                        "description": "Type of target (TABLE, DB, VIEW, etc.)"
-                    },
-                    "target_value": {
-                        "type": "string",
-                        "description": "Value of target (e.g., 'myDB.TableA')"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Description of sub-criteria"
-                    },
-                    "subcriteria_type": {
-                        "type": "string",
-                        "description": "Sub-criteria type (FTSCAN, MINSTEPTIME, JOIN, etc.)"
-                    },
-                    "subcriteria_value": {
-                        "type": "string",
-                        "description": "Value for sub-criteria (e.g., '3600' for MINSTEPTIME)"
-                    },
-                    "operator": {
-                        "type": "string",
-                        "description": "Operator: I=Inclusion",
-                        "default": "I"
-                    }
+                    "ruleset_name": {"type": "string", "description": "Ruleset name"},
+                    "rule_name": {"type": "string", "description": "Name of the rule"},
+                    "target_type": {"type": "string", "description": "Type of target (TABLE, DB, VIEW, etc.)"},
+                    "target_value": {"type": "string", "description": "Value of target (e.g., 'myDB.TableA')"},
+                    "description": {"type": "string", "description": "Description of sub-criteria"},
+                    "subcriteria_type": {"type": "string", "description": "Sub-criteria type (FTSCAN, MINSTEPTIME, JOIN, etc.)"},
+                    "subcriteria_value": {"type": "string", "description": "Value for sub-criteria"},
+                    "operator": {"type": "string", "description": "Operator: I=Inclusion", "default": "I"}
                 },
                 "required": ["ruleset_name", "rule_name", "target_type", "target_value", "description", "subcriteria_type"]
             },
         ),
         types.Tool(
             name="activate_ruleset",
-            description="⚠️ ACTIVATE a ruleset to apply ALL pending configuration changes to the live system. This makes throttles, filters, and rule modifications take effect immediately. MUST BE CALLED after any create, modify, enable, disable, or delete operations on rules. Use this as the final step after making one or more configuration changes. REQUIRES: ruleset_name. IMMEDIATE EFFECT: Changes go live immediately upon successful activation and will affect query execution right away. IMPORTANT: Always verify your changes are correct before activating. Consider testing changes in non-production environment first. TIP: You can make multiple changes (create throttle, add criteria, set limits) then activate once to apply all changes atomically.",
+            description="ACTIVATE a ruleset to apply ALL pending configuration changes to the live system. MUST BE CALLED after any create, modify, enable, disable, or delete operations. REQUIRES: ruleset_name. IMMEDIATE EFFECT.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "ruleset_name": {
-                        "type": "string",
-                        "description": "Name of the ruleset to activate"
-                    }
+                    "ruleset_name": {"type": "string", "description": "Name of the ruleset to activate"}
                 },
                 "required": ["ruleset_name"]
             },
         ),
         types.Tool(
             name="list_rulesets",
-            description="List all available rulesets (configuration containers) in the system. Rulesets are named collections that group throttles, filters, and workload rules together. Typically one ruleset is active at a time (commonly named 'MyFirstConfig' or similar). Use this to see what rulesets exist, identify which ruleset contains your rules, find the active ruleset name before making configuration changes, or verify ruleset configuration. Returns ruleset names with their active/inactive status and configuration details. Most systems have one primary ruleset, but may have others for testing or alternate configurations.",
+            description="List all available rulesets (configuration containers) in the system. Returns ruleset names with their active/inactive status.",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -1375,119 +1328,76 @@ async def handle_tool_call(
     Tools can modify server state and notify clients of changes.
     """
     logger.info(f"Calling tool: {name}::{arguments}")
-    
+
     # Check OAuth authorization for this tool
     if not require_oauth_authorization(name):
         error_msg = get_oauth_error(name)
         logger.warning(f"OAuth authorization failed for tool {name}: {error_msg}")
         return [types.TextContent(type="text", text=f"Authorization Error: {error_msg}")]
-    
+
     try:
         if name == "show_sessions":
-            tool_response = await list_sessions()
-            return tool_response
+            return await list_sessions()
         elif name == "show_physical_resources":
-            tool_response = await list_resources()
-            return tool_response
+            return await list_resources()
         elif name == "monitor_amp_load":
-            tool_response = await monitor_amp_load()
-            return tool_response
+            return await monitor_amp_load()
         elif name == "monitor_awt":
-            tool_response = await monitor_awt()
-            return tool_response
+            return await monitor_awt()
         elif name == "monitor_config":
-            tool_response = await monitor_config()
-            return tool_response
+            return await monitor_config()
         elif name == "show_sql_steps_for_session":
-            tool_response = await show_session_sql_steps(arguments["sessionNo"])
-            return tool_response
+            return await show_session_sql_steps(arguments["sessionNo"])
         elif name == "show_sql_text_for_session":
-            tool_response = await show_session_sql_text(arguments["sessionNo"])
-            return tool_response
+            return await show_session_sql_text(arguments["sessionNo"])
         elif name == "identify_blocking":
-            tool_response = await identify_blocking()
-            return tool_response
+            return await identify_blocking()
         elif name == "abort_sessions_user":
-            tool_response = await abort_sessions_user(arguments["user"])
-            return tool_response
+            return await abort_sessions_user(arguments["user"])
         elif name == "list_active_WD":
-            tool_response = await list_active_WD()
-            return tool_response
+            return await list_active_WD()
         elif name == "list_WD":
-            tool_response = await list_WDs()
-            return tool_response
+            return await list_WDs()
         elif name == "list_delayed_request":
-            tool_response = await list_delayed_request()
-            return tool_response
+            return await list_delayed_request()
         elif name == "abort_delayed_request":
-            tool_response = await abort_delayed_request(arguments["sessionNo"])
-            return tool_response
+            return await abort_delayed_request(arguments["sessionNo"])
         elif name == "list_utility_stats":
-            tool_response = await list_utility_stats()
-            return tool_response
+            return await list_utility_stats()
         elif name == "display_delay_queue":
-            tool_response = await display_delay_queue(arguments["type"])
-            return tool_response
+            return await display_delay_queue(arguments["type"])
         elif name == "release_delay_queue":
-            tool_response = await release_delay_queue(
-                arguments.get("sessionNo"), 
+            return await release_delay_queue(
+                arguments.get("sessionNo"),
                 arguments.get("userName")
             )
-            return tool_response
         elif name == "show_tdwm_summary":
-            tool_response = await show_tdwm_summary()
-            return tool_response
+            return await show_tdwm_summary()
         elif name == "show_trottle_statistics":
-            tool_response = await show_trottle_statistics(arguments.get("type", "ALL"))
-            return tool_response
+            return await show_trottle_statistics(arguments.get("type", "ALL"))
         elif name == "list_query_band":
-            tool_response = await list_query_band(arguments.get("type", "ALL"))
-            return tool_response
+            return await list_query_band(arguments.get("type", "ALL"))
         elif name == "monitor_session_query_band":
-            tool_response = await monitor_session_query_band(arguments["sessionNo"])
-            return tool_response
+            return await monitor_session_query_band(arguments["sessionNo"])
         elif name == "show_query_log":
-            tool_response = await show_query_log(arguments["user"])
-            return tool_response
+            return await show_query_log(arguments["user"])
         elif name == "show_cod_limits":
-            tool_response = await show_cod_limits()
-            return tool_response
+            return await show_cod_limits()
         elif name == "tdwm_list_clasification":
-            tool_response = await tdwm_list_clasification()
-            return tool_response
+            return await tdwm_list_clasification()
         elif name == "show_top_users":
-            tool_response = await show_top_users(arguments.get("type", "ALL"))
-            return tool_response
+            return await show_top_users(arguments.get("type", "ALL"))
         elif name == "show_sw_event_log":
-            tool_response = await show_sw_event_log(arguments.get("Type", "ALL"))
-            return tool_response
+            return await show_sw_event_log(arguments.get("Type", "ALL"))
         elif name == "show_tasm_statistics":
-            tool_response = await show_tasm_statistics()
-            return tool_response
+            return await show_tasm_statistics()
         elif name == "show_tasm_even_history":
-            tool_response = await show_tasm_even_history()
-            return tool_response
+            return await show_tasm_even_history()
         elif name == "show_tasm_rule_history_red":
-            tool_response = await show_tasm_rule_history_red()
-            return tool_response
-        elif name == "create_filter_rule":
-            tool_response = await create_filter_rule()
-            return tool_response
-        elif name == "add_class_criteria":
-            tool_response = await add_class_criteria()
-            return tool_response
-        elif name == "enable_filter_in_default":
-            tool_response = await enable_filter_in_default()
-            return tool_response
-        elif name == "enable_filter_rule":
-            tool_response = await enable_filter_rule()
-            return tool_response
-        elif name == "activate_rulset":
-            tool_response = await activate_rulset(arguments["RuleName"])
-            return tool_response
+            return await show_tasm_rule_history_red()
         # ========== Priority 1 Configuration Management Dispatch ==========
         elif name == "create_system_throttle":
-            tool_response = await create_system_throttle(
+            return await create_system_throttle(
                 arguments["ruleset_name"],
                 arguments["throttle_name"],
                 arguments["description"],
@@ -1495,61 +1405,52 @@ async def handle_tool_call(
                 arguments["limit"],
                 arguments.get("classification_criteria")
             )
-            return tool_response
         elif name == "modify_throttle_limit":
-            tool_response = await modify_throttle_limit(
+            return await modify_throttle_limit(
                 arguments["ruleset_name"],
                 arguments["throttle_name"],
                 arguments["new_limit"]
             )
-            return tool_response
         elif name == "delete_throttle":
-            tool_response = await delete_throttle(
+            return await delete_throttle(
                 arguments["ruleset_name"],
                 arguments["throttle_name"]
             )
-            return tool_response
         elif name == "enable_throttle":
-            tool_response = await enable_throttle(
+            return await enable_throttle(
                 arguments["ruleset_name"],
                 arguments["throttle_name"]
             )
-            return tool_response
         elif name == "disable_throttle":
-            tool_response = await disable_throttle(
+            return await disable_throttle(
                 arguments["ruleset_name"],
                 arguments["throttle_name"]
             )
-            return tool_response
         elif name == "create_filter":
-            tool_response = await create_filter(
+            return await create_filter(
                 arguments["ruleset_name"],
                 arguments["filter_name"],
                 arguments["description"],
                 arguments.get("classification_criteria"),
                 arguments.get("action", "E")
             )
-            return tool_response
         elif name == "delete_filter":
-            tool_response = await delete_filter(
+            return await delete_filter(
                 arguments["ruleset_name"],
                 arguments["filter_name"]
             )
-            return tool_response
         elif name == "enable_filter":
-            tool_response = await enable_filter(
+            return await enable_filter(
                 arguments["ruleset_name"],
                 arguments["filter_name"]
             )
-            return tool_response
         elif name == "disable_filter":
-            tool_response = await disable_filter(
+            return await disable_filter(
                 arguments["ruleset_name"],
                 arguments["filter_name"]
             )
-            return tool_response
         elif name == "add_classification_to_rule":
-            tool_response = await add_classification_to_rule(
+            return await add_classification_to_rule(
                 arguments["ruleset_name"],
                 arguments["rule_name"],
                 arguments["description"],
@@ -1557,9 +1458,8 @@ async def handle_tool_call(
                 arguments["classification_value"],
                 arguments.get("operator", "I")
             )
-            return tool_response
         elif name == "add_subcriteria_to_target":
-            tool_response = await add_subcriteria_to_target(
+            return await add_subcriteria_to_target(
                 arguments["ruleset_name"],
                 arguments["rule_name"],
                 arguments["target_type"],
@@ -1569,17 +1469,23 @@ async def handle_tool_call(
                 arguments.get("subcriteria_value"),
                 arguments.get("operator", "I")
             )
-            return tool_response
         elif name == "activate_ruleset":
-            tool_response = await activate_ruleset(
+            return await activate_ruleset(
                 arguments["ruleset_name"]
             )
-            return tool_response
         elif name == "list_rulesets":
-            tool_response = await list_rulesets()
-            return tool_response
+            return await list_rulesets()
         return [types.TextContent(type="text", text=f"Unsupported tool: {name}")]
 
+    except ConnectionError as e:
+        logger.error(f"Connection error executing tool {name}: {e}")
+        return [types.TextContent(
+            type="text",
+            text="Database connection error. Please check your database connection and try again."
+        )]
     except Exception as e:
         logger.error(f"Error executing tool {name}: {e}")
-        raise ValueError(f"Error executing tool {name}: {str(e)}")
+        return [types.TextContent(
+            type="text",
+            text=f"Error executing tool {name}. An internal error occurred. Check server logs for details."
+        )]

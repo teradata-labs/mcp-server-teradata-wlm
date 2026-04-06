@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 from mcp.server.fastmcp import FastMCP
 
 from .tdsql import obfuscate_password
+from .settings import Settings, settings_from_env
 from .connection_manager import TeradataConnectionManager
 from .fnc_tools import (
     set_tools_connection,
@@ -32,11 +33,12 @@ from .fnc_prompts import (
 )
 from .auth import (
     OAuthConfig,
-    ProtectedResourceMetadata, 
+    ProtectedResourceMetadata,
     OAuthMiddleware,
     OAuthEndpoints
 )
 from .oauth_context import OAuthContext, set_oauth_context
+from .fnc_common import set_transport
 
 logger = logging.getLogger(__name__)
 
@@ -45,47 +47,44 @@ _connection_manager = None
 _db = ""
 _oauth_config = None
 _oauth_middleware = None
+_settings = None
 
-async def initialize_database():
+async def initialize_database(settings: Settings):
     """Initialize database connection from environment or command line."""
     global _connection_manager, _db
-    
+
     # Parse command line arguments for database URL
     parser = argparse.ArgumentParser(description="TDWM MCP Server")
     parser.add_argument("database_url", help="Database connection URL", nargs="?")
     args = parser.parse_args()
-    database_url = os.environ.get("DATABASE_URI", args.database_url)
-    
+    database_url = settings.database_uri or args.database_url
+
     if not database_url:
         logger.warning("No database URL provided. Database operations will fail.")
         return
-    
+
     # Initialize database connection
     parsed_url = urlparse(database_url)
-    _db = parsed_url.path.lstrip('/') 
-    
+    _db = parsed_url.path.lstrip('/')
+
     try:
-        # Create connection manager with configurable retry settings
-        max_retries = int(os.environ.get("DB_MAX_RETRIES", "3"))
-        initial_backoff = float(os.environ.get("DB_INITIAL_BACKOFF", "1.0"))
-        max_backoff = float(os.environ.get("DB_MAX_BACKOFF", "30.0"))
-        
         _connection_manager = TeradataConnectionManager(
             database_url=database_url,
             db_name=_db,
-            max_retries=max_retries,
-            initial_backoff=initial_backoff,
-            max_backoff=max_backoff
+            max_retries=settings.max_retries,
+            initial_backoff=settings.initial_backoff,
+            max_backoff=settings.max_backoff,
+            pool_size=settings.pool_size,
+            settings=settings
         )
         # Register the connection manager with the tool modules now so they
-        # can attempt to establish a connection lazily (via ensure_connection)
-        # even if the initial connection attempt fails below.
+        # can acquire connections from the pool on demand.
         set_tools_connection(_connection_manager, _db)
 
-        # Test initial connection (this may still fail; tools will try again on demand)
-        await _connection_manager.ensure_connection()
-        logger.info("Successfully connected to database and initialized connection manager")
-        
+        # Warm the pool with one connection (may fail; tools will retry on demand)
+        await _connection_manager.warm()
+        logger.info(f"Connection pool initialized (pool_size={settings.pool_size})")
+
     except Exception as e:
         logger.warning(
             f"Could not connect to database: {obfuscate_password(str(e))}",
@@ -97,20 +96,20 @@ async def initialize_database():
 async def initialize_oauth():
     """Initialize OAuth 2.1 authentication from environment variables."""
     global _oauth_config, _oauth_middleware
-    
+
     try:
         # Load OAuth configuration from environment
         _oauth_config = OAuthConfig.from_environment()
-        
+
         if _oauth_config.enabled:
             # Initialize OAuth components
             metadata = ProtectedResourceMetadata(_oauth_config)
             _oauth_middleware = OAuthMiddleware(_oauth_config, metadata)
-            
+
             # Set up OAuth context for tools
             oauth_context = OAuthContext(_oauth_config, metadata)
             set_oauth_context(oauth_context)
-            
+
             logger.info(f"OAuth 2.1 authentication enabled for realm: {_oauth_config.realm}")
             logger.info(f"Authorization server: {_oauth_config.get_issuer_url()}")
             logger.info(f"Required scopes: {_oauth_config.required_scopes}")
@@ -118,7 +117,7 @@ async def initialize_oauth():
             logger.info("OAuth 2.1 authentication is disabled")
             # Set up empty OAuth context
             set_oauth_context(None)
-            
+
     except Exception as e:
         logger.warning(f"OAuth initialization failed: {e}")
         logger.warning("Server will start without OAuth authentication")
@@ -140,11 +139,11 @@ app._mcp_server.get_prompt()(handle_get_prompt)
 def setup_oauth_endpoints():
     """Setup OAuth endpoints for FastMCP app."""
     global _oauth_config, _oauth_middleware
-    
+
     if _oauth_config and _oauth_config.enabled and _oauth_middleware:
         metadata = ProtectedResourceMetadata(_oauth_config)
         oauth_endpoints = OAuthEndpoints(_oauth_config, metadata, _oauth_middleware)
-        
+
         # Register OAuth endpoints with the FastAPI app for streamable-http transport
         # Note: For SSE transport, OAuth endpoints are handled in create_starlette_app()
         if hasattr(app, '_app') and hasattr(app._app, 'routes'):
@@ -155,17 +154,17 @@ def setup_oauth_endpoints():
     else:
         logger.info("OAuth endpoints not registered - OAuth is disabled")
 
-def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlette:
+def create_starlette_app(mcp_server: Server, *, debug: bool = False, cors_origins: str = "*") -> Starlette:
     """Create a Starlette application that can serve the provided mcp server with SSE."""
     from starlette.responses import JSONResponse
-    
+
     sse = SseServerTransport("/messages/")
 
     async def handle_sse(request: Request) -> None:
         async with sse.connect_sse(
                 request.scope,
                 request.receive,
-                request._send, 
+                request._send,
         ) as (read_stream, write_stream):
             await mcp_server.run(
                 read_stream,
@@ -178,7 +177,7 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
         Route("/sse", endpoint=handle_sse),
         Mount("/messages/", app=sse.handle_post_message),
     ]
-    
+
     async def health_check(request: Request):
         """Health check endpoint for SSE transport."""
         try:
@@ -203,7 +202,7 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
         try:
             info = {
                 "name": "tdwm-mcp",
-                "version": "0.1.0", 
+                "version": "0.1.0",
                 "description": "Teradata Workload Management MCP Server",
                 "transport": "sse",
                 "capabilities": {
@@ -241,7 +240,7 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
         return JSONResponse(
             content={},
             headers={
-                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Origin": cors_origins,
                 "Access-Control-Allow-Methods": "GET, OPTIONS",
                 "Access-Control-Allow-Headers": "Authorization, Content-Type",
                 "Access-Control-Max-Age": "3600"
@@ -252,7 +251,7 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
     if _oauth_config and _oauth_config.enabled and _oauth_middleware:
         # Create metadata handler for OAuth endpoints
         metadata = ProtectedResourceMetadata(_oauth_config)
-        
+
         async def oauth_protected_resource_metadata(request: Request):
             """OAuth Protected Resource Metadata endpoint for SSE transport."""
             try:
@@ -262,7 +261,7 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
                     headers={
                         "Content-Type": "application/json",
                         "Cache-Control": "max-age=3600",
-                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Origin": cors_origins,
                         "Access-Control-Allow-Methods": "GET",
                         "Access-Control-Allow-Headers": "Authorization"
                     }
@@ -273,7 +272,7 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
                     status_code=500,
                     content={"error": "Internal server error"}
                 )
-        
+
         # Add OAuth routes to Starlette
         routes.extend([
             Route("/.well-known/oauth-protected-resource", endpoint=oauth_protected_resource_metadata, methods=["GET"]),
@@ -284,7 +283,7 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
             Route("/.well-known/mcp-server-info", endpoint=oauth_endpoints_preflight, methods=["OPTIONS"]),
             Route("/health", endpoint=oauth_endpoints_preflight, methods=["OPTIONS"]),
         ])
-        
+
         logger.info("OAuth endpoints added to SSE Starlette app")
 
     else:
@@ -300,36 +299,46 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
 
 async def main():
     """Main entry point for the server."""
+    global _settings
+
     # Configure logging
     logging.basicConfig(level=logging.INFO)
-    
+
+    # Load settings once from environment
+    _settings = settings_from_env()
+
+    # Set transport for per-tool QueryBand
+    set_transport(_settings.mcp_transport)
+
     # Initialize OAuth authentication
     await initialize_oauth()
-    
+
     # Initialize database connection
-    await initialize_database()
-    
+    await initialize_database(_settings)
+
     # Setup OAuth endpoints after initialization
     setup_oauth_endpoints()
-    
-    mcp_transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
+
+    mcp_transport = _settings.mcp_transport
     logger.info(f"MCP_TRANSPORT: {mcp_transport}")
 
     # Start the MCP server
     if mcp_transport == "sse":
-        app.settings.host = os.getenv("MCP_HOST", "0.0.0.0")
-        app.settings.port = int(os.getenv("MCP_PORT", "8000"))
+        app.settings.host = _settings.mcp_host
+        app.settings.port = _settings.mcp_port
         logger.info(f"Starting MCP server on {app.settings.host}:{app.settings.port}")
-        mcp_server = app._mcp_server  
-        starlette_app = create_starlette_app(mcp_server, debug=True)
+        mcp_server = app._mcp_server
+        starlette_app = create_starlette_app(
+            mcp_server, debug=True, cors_origins=_settings.cors_allowed_origins
+        )
         config = uvicorn.Config(starlette_app, host=app.settings.host, port=app.settings.port, log_level="info")
         server = uvicorn.Server(config)
         await server.serve()
 
     elif mcp_transport == "streamable-http":
-        app.settings.host = os.getenv("MCP_HOST", "0.0.0.0")
-        app.settings.port = int(os.getenv("MCP_PORT", "8000"))
-        app.settings.streamable_http_path = os.getenv("MCP_PATH", "/mcp/")
+        app.settings.host = _settings.mcp_host
+        app.settings.port = _settings.mcp_port
+        app.settings.streamable_http_path = _settings.mcp_path
         logger.info(f"Starting MCP server on {app.settings.host}:{app.settings.port} with path {app.settings.streamable_http_path}")
         await app.run_streamable_http_async()
     else:
