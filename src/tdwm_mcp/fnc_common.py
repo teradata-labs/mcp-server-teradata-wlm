@@ -6,13 +6,14 @@ This module contains shared utilities used by all tool function modules
 
 Includes:
 - Response formatting functions
-- Database connection management
+- Database connection pool access
 - Per-tool QueryBand helper
 - Type definitions
 - Retry utilities for connection resilience
 """
 
 import logging
+from contextlib import asynccontextmanager
 from typing import Any, List
 
 import mcp.types as types
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 # Type alias for MCP response content
 ResponseType = List[types.TextContent | types.ImageContent | types.EmbeddedResource]
 
-# Global connection and database variables
+# Global connection manager and database variables
 _connection_manager = None
 _db = ""
 _transport = "stdio"
@@ -47,6 +48,31 @@ def set_transport(transport: str):
     """Set the transport type for per-tool QueryBand."""
     global _transport
     _transport = transport
+
+
+@asynccontextmanager
+async def acquire_connection():
+    """
+    Acquire an exclusive database connection from the pool.
+
+    Usage:
+        async with acquire_connection() as tdconn:
+            cur = tdconn.cursor()
+            cur.execute("SELECT ...")
+
+    The connection is automatically returned to the pool on success,
+    or discarded on error to avoid returning tainted state.
+
+    Raises:
+        ConnectionError: If pool is not initialized or exhausted
+    """
+    if not _connection_manager:
+        raise ConnectionError(
+            "Database connection not initialized. "
+            "Please set DATABASE_URI environment variable or provide database URL."
+        )
+    async with _connection_manager.acquire() as conn:
+        yield conn
 
 
 def _set_queryband(tdconn, tool_name: str):
@@ -72,24 +98,3 @@ def format_text_response(text: Any) -> ResponseType:
 def format_error_response(error: str) -> ResponseType:
     """Format an error response for MCP tools."""
     return format_text_response(f"Error: {error}")
-
-
-async def get_connection():
-    """
-    Get a healthy database connection.
-
-    Returns:
-        Database connection object
-
-    Raises:
-        ConnectionError: If database connection is not initialized
-    """
-    global _connection_manager
-
-    if not _connection_manager:
-        raise ConnectionError(
-            "Database connection not initialized. "
-            "Please set DATABASE_URI environment variable or provide database URL."
-        )
-
-    return await _connection_manager.ensure_connection()

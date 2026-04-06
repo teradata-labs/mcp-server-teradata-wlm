@@ -74,16 +74,16 @@ async def initialize_database(settings: Settings):
             max_retries=settings.max_retries,
             initial_backoff=settings.initial_backoff,
             max_backoff=settings.max_backoff,
+            pool_size=settings.pool_size,
             settings=settings
         )
         # Register the connection manager with the tool modules now so they
-        # can attempt to establish a connection lazily (via ensure_connection)
-        # even if the initial connection attempt fails below.
+        # can acquire connections from the pool on demand.
         set_tools_connection(_connection_manager, _db)
 
-        # Test initial connection (this may still fail; tools will try again on demand)
-        await _connection_manager.ensure_connection()
-        logger.info("Successfully connected to database and initialized connection manager")
+        # Warm the pool with one connection (may fail; tools will retry on demand)
+        await _connection_manager.warm()
+        logger.info(f"Connection pool initialized (pool_size={settings.pool_size})")
 
     except Exception as e:
         logger.warning(

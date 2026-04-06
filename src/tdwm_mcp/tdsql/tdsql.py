@@ -82,6 +82,7 @@ class TDConn:
         except Exception as e:
             logger.error(f"Error connecting to database: {obfuscate_password(str(e))}")
             self.conn = None
+            raise
 
     def cursor(self):
         if self.conn is None:

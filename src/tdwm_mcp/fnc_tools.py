@@ -17,7 +17,7 @@ from .oauth_context import require_oauth_authorization, get_oauth_error
 from .fnc_common import (
     format_text_response,
     format_error_response,
-    get_connection,
+    acquire_connection,
     _set_queryband,
     ResponseType,
     set_tools_connection,
@@ -50,479 +50,479 @@ logger = logging.getLogger(__name__)
 @with_connection_retry()
 async def list_sessions() -> ResponseType:
     """Show my sessions"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_sessions")
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT * FROM TABLE (monitormysessions()) as t1")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        return format_error_response("Failed to list sessions. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_sessions")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT * FROM TABLE (monitormysessions()) as t1")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing sessions: {e}")
+            return format_error_response("Failed to list sessions. Check server logs for details.")
 
 @with_connection_retry()
 async def monitor_amp_load() -> ResponseType:
     """Monitor AMP load"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "monitor_amp_load")
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT * FROM TABLE (MonitorAMPLoad()) AS t1")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error monitoring AMP load: {e}")
-        return format_error_response("Failed to monitor AMP load. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "monitor_amp_load")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT * FROM TABLE (MonitorAMPLoad()) AS t1")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error monitoring AMP load: {e}")
+            return format_error_response("Failed to monitor AMP load. Check server logs for details.")
 
 @with_connection_retry()
 async def monitor_awt() -> ResponseType:
     """Monitor AWT (Amp Worker Tasks) resources"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "monitor_awt")
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT * FROM TABLE (MonitorAWTResource(1,2,3,4)) AS t1")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error monitoring AWT: {e}")
-        return format_error_response("Failed to monitor AWT resources. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "monitor_awt")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT * FROM TABLE (MonitorAWTResource(1,2,3,4)) AS t1")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error monitoring AWT: {e}")
+            return format_error_response("Failed to monitor AWT resources. Check server logs for details.")
 
 @with_connection_retry()
 async def monitor_config() -> ResponseType:
     """Monitor Teradata config"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "monitor_config")
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT t2.* FROM TABLE (MonitorVirtualConfig()) AS t2")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error monitoring config: {e}")
-        return format_error_response("Failed to monitor config. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "monitor_config")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT t2.* FROM TABLE (MonitorVirtualConfig()) AS t2")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error monitoring config: {e}")
+            return format_error_response("Failed to monitor config. Check server logs for details.")
 
 @with_connection_retry()
 async def list_resources() -> ResponseType:
     """Show physical resources"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_physical_resources")
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT t2.* from table (MonitorPhysicalResource()) as t2")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing physical resources: {e}")
-        return format_error_response("Failed to list physical resources. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_physical_resources")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT t2.* from table (MonitorPhysicalResource()) as t2")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing physical resources: {e}")
+            return format_error_response("Failed to list physical resources. Check server logs for details.")
 
 @with_connection_retry()
 async def identify_blocking() -> ResponseType:
     """Identify blocking users"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "identify_blocking")
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT
-                IdentifyUser(blk1userid) as "blocking user",
-                IdentifyTable(blk1objtid) as "blocking table",
-                IdentifyDatabase(blk1objdbid) as "blocking db"
-            FROM TABLE (MonitorSession(-1,'*',0)) AS t1
-            WHERE Blk1UserId > 0""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error identifying blocking: {e}")
-        return format_error_response("Failed to identify blocking sessions. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "identify_blocking")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT
+                    IdentifyUser(blk1userid) as "blocking user",
+                    IdentifyTable(blk1objtid) as "blocking table",
+                    IdentifyDatabase(blk1objdbid) as "blocking db"
+                FROM TABLE (MonitorSession(-1,'*',0)) AS t1
+                WHERE Blk1UserId > 0""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error identifying blocking: {e}")
+            return format_error_response("Failed to identify blocking sessions. Check server logs for details.")
 
 @with_connection_retry()
 async def abort_sessions_user(usr: str) -> ResponseType:
     """Abort sessions for a user {usr}"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "abort_sessions_user")
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT AbortSessions (HostId, UserName, SessionNo, 'Y', 'Y')
-            FROM TABLE (MonitorSession(-1, '*', 0)) AS t1
-            WHERE username= ?""", [usr])
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error aborting sessions for user: {e}")
-        return format_error_response("Failed to abort sessions. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "abort_sessions_user")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT AbortSessions (HostId, UserName, SessionNo, 'Y', 'Y')
+                FROM TABLE (MonitorSession(-1, '*', 0)) AS t1
+                WHERE username= ?""", [usr])
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error aborting sessions for user: {e}")
+            return format_error_response("Failed to abort sessions. Check server logs for details.")
 
 @with_connection_retry()
 async def list_active_WD() -> ResponseType:
     """List active workloads (WD)"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "list_active_WD")
-        cur = tdconn.cursor()
-        rows = cur.execute("""sel * from table (tdwm.TDWMActiveWDs()) as t1""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error listing active workloads: {e}")
-        return format_error_response("Failed to list active workloads. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "list_active_WD")
+            cur = tdconn.cursor()
+            rows = cur.execute("""sel * from table (tdwm.TDWMActiveWDs()) as t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error listing active workloads: {e}")
+            return format_error_response("Failed to list active workloads. Check server logs for details.")
 
 @with_connection_retry()
 async def list_WDs() -> ResponseType:
     """List workloads (WD)"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "list_WD")
-        cur = tdconn.cursor()
-        rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMListWDs('Y')) AS t1""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error listing workloads: {e}")
-        return format_error_response("Failed to list workloads. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "list_WD")
+            cur = tdconn.cursor()
+            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMListWDs('Y')) AS t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error listing workloads: {e}")
+            return format_error_response("Failed to list workloads. Check server logs for details.")
 
 
 @with_connection_retry()
 async def show_session_sql_steps(SessionNo: int) -> ResponseType:
     """Show sql steps for a session {SessionNo}"""
     SessionNo = int(SessionNo)
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_sql_steps_for_session")
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
-        row = rows.fetchall()[0]
-        hostId = int(row[0])
-        logonPENo = int(row[1])
-        query = """
-            select
-                SQLStep,
-                StepNum (format '99') Num,
-                Confidence (format '9') C,
-                EstRowCount (format '-99999999') ERC,
-                ActRowCount (format '99999999') ARC,
-                EstRowCountSkew (format '-99999999') ERCS,
-                ActRowCountSkew (format '99999999') ARCS,
-                EstRowCountSkewMatch (format '-99999999') ERCSM,
-                ActRowCountSkewMatch (format '99999999') ARCSM,
-                EstElapsedTime (format '99999') EET,
-                ActElapsedTime (format '99999') AET
-            from
-                table (MonitorSQLSteps({hostId},{SessionNo},{logonPENo})) as t2
-            """.format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
-        cur1 = tdconn.cursor()
-        rows1 = cur1.execute(query)
-        return format_text_response(list(rows1.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing SQL steps: {e}")
-        return format_error_response("Failed to show SQL steps. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_sql_steps_for_session")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
+            row = rows.fetchall()[0]
+            hostId = int(row[0])
+            logonPENo = int(row[1])
+            query = """
+                select
+                    SQLStep,
+                    StepNum (format '99') Num,
+                    Confidence (format '9') C,
+                    EstRowCount (format '-99999999') ERC,
+                    ActRowCount (format '99999999') ARC,
+                    EstRowCountSkew (format '-99999999') ERCS,
+                    ActRowCountSkew (format '99999999') ARCS,
+                    EstRowCountSkewMatch (format '-99999999') ERCSM,
+                    ActRowCountSkewMatch (format '99999999') ARCSM,
+                    EstElapsedTime (format '99999') EET,
+                    ActElapsedTime (format '99999') AET
+                from
+                    table (MonitorSQLSteps({hostId},{SessionNo},{logonPENo})) as t2
+                """.format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
+            cur1 = tdconn.cursor()
+            rows1 = cur1.execute(query)
+            return format_text_response(list(rows1.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing SQL steps: {e}")
+            return format_error_response("Failed to show SQL steps. Check server logs for details.")
 
 @with_connection_retry()
 async def monitor_session_query_band(SessionNo: int) -> ResponseType:
     """Monitor query band for session {SessionNo}"""
     SessionNo = int(SessionNo)
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "monitor_session_query_band")
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
-        row = rows.fetchall()[0]
-        hostId = int(row[0])
-        logonPENo = int(row[1])
-        query = """
-            SELECT MonitorQueryBand({hostId},{SessionNo},{logonPENo})
-            """.format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
-        cur1 = tdconn.cursor()
-        rows1 = cur1.execute(query)
-        return format_text_response(list(rows1.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error monitoring session query band: {e}")
-        return format_error_response("Failed to monitor session query band. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "monitor_session_query_band")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
+            row = rows.fetchall()[0]
+            hostId = int(row[0])
+            logonPENo = int(row[1])
+            query = """
+                SELECT MonitorQueryBand({hostId},{SessionNo},{logonPENo})
+                """.format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
+            cur1 = tdconn.cursor()
+            rows1 = cur1.execute(query)
+            return format_text_response(list(rows1.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error monitoring session query band: {e}")
+            return format_error_response("Failed to monitor session query band. Check server logs for details.")
 
 @with_connection_retry()
 async def show_session_sql_text(SessionNo: int) -> ResponseType:
     """Show sql text for a session {SessionNo}"""
     SessionNo = int(SessionNo)
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_sql_text_for_session")
-        cur = tdconn.cursor()
-        rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
-        row = rows.fetchall()[0]
-        hostId = int(row[0])
-        logonPENo = int(row[1])
-        query = "SELECT SQLTxt FROM TABLE (MonitorSQLText({hostId},{SessionNo},{logonPENo})) as t2".format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
-        cur1 = tdconn.cursor()
-        rows1 = cur1.execute(query)
-        return format_text_response(list(rows1.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing SQL text: {e}")
-        return format_error_response("Failed to show SQL text. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_sql_text_for_session")
+            cur = tdconn.cursor()
+            rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
+            row = rows.fetchall()[0]
+            hostId = int(row[0])
+            logonPENo = int(row[1])
+            query = "SELECT SQLTxt FROM TABLE (MonitorSQLText({hostId},{SessionNo},{logonPENo})) as t2".format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
+            cur1 = tdconn.cursor()
+            rows1 = cur1.execute(query)
+            return format_text_response(list(rows1.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing SQL text: {e}")
+            return format_error_response("Failed to show SQL text. Check server logs for details.")
 
 @with_connection_retry()
 async def list_delayed_request() -> ResponseType:
     """List all of the delayed queries"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "list_delayed_request")
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error listing delayed requests: {e}")
-        return format_error_response("Failed to list delayed requests. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "list_delayed_request")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error listing delayed requests: {e}")
+            return format_error_response("Failed to list delayed requests. Check server logs for details.")
 
 
 @with_connection_retry()
 async def abort_delayed_request(SessionNo: int) -> ResponseType:
     """Abort delay requests on session {SessionNo}"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "abort_delayed_request")
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT TDWM.TDWMAbortDelayedRequest(HostId, SessionNo, RequestNo, 0)
-            FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1
-            WHERE SessionNo=?""",[SessionNo])
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error aborting delayed request: {e}")
-        return format_error_response("Failed to abort delayed request. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "abort_delayed_request")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT TDWM.TDWMAbortDelayedRequest(HostId, SessionNo, RequestNo, 0)
+                FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1
+                WHERE SessionNo=?""",[SessionNo])
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error aborting delayed request: {e}")
+            return format_error_response("Failed to abort delayed request. Check server logs for details.")
 
 @with_connection_retry()
 async def list_utility_stats() -> ResponseType:
     """List statistics for use utilities"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "list_utility_stats")
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT * FROM TABLE (TDWM.TDWMLoadUtilStatistics()) AS t1""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error listing utility stats: {e}")
-        return format_error_response("Failed to list utility statistics. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "list_utility_stats")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT * FROM TABLE (TDWM.TDWMLoadUtilStatistics()) AS t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error listing utility stats: {e}")
+            return format_error_response("Failed to list utility statistics. Check server logs for details.")
 
 @with_connection_retry()
 async def display_delay_queue(Type: str) -> ResponseType:
     """Display {Type} delay queue details"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "display_delay_queue")
-        cur = tdconn.cursor()
-        if Type.upper() == "WORKLOAD":
-            rows = cur.execute("""
-                SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('W')) AS t1;""")
-        elif Type.upper() == "SYSTEM":
-            rows = cur.execute("""
-                SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1""")
-        elif Type.upper() == "UTILITY":
-            rows = cur.execute("""
-                SELECT * FROM TABLE (TDWM.TDWMGetDelayedUtilities()) AS t1""")
-        else:
-            rows = cur.execute("""
-                SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('A')) AS t1""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error displaying delay queue: {e}")
-        return format_error_response("Failed to display delay queue. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "display_delay_queue")
+            cur = tdconn.cursor()
+            if Type.upper() == "WORKLOAD":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('W')) AS t1;""")
+            elif Type.upper() == "SYSTEM":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1""")
+            elif Type.upper() == "UTILITY":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE (TDWM.TDWMGetDelayedUtilities()) AS t1""")
+            else:
+                rows = cur.execute("""
+                    SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('A')) AS t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error displaying delay queue: {e}")
+            return format_error_response("Failed to display delay queue. Check server logs for details.")
 
 @with_connection_retry()
 async def release_delay_queue(SessionNo: int, UserName: str) -> ResponseType:
     """Releases a request or utility session in the queue for session or user"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "release_delay_queue")
-        cur = tdconn.cursor()
-        if SessionNo:
-            rows = cur.execute("""
-                SELECT TDWM.TDWMReleaseDelayedRequest(HostId, SessionNo, RequestNo, 0)
-                FROM TABLE (TDWMGetDelayedQueries('O')) AS t1
-                WHERE SessionNo=?""",[SessionNo])
-        elif UserName:
-            rows = cur.execute("""
-                SELECT TDWM.TDWMReleaseDelayedRequest(HostId, SessionNo, RequestNo, 0)
-                FROM TABLE (TDWMGetDelayedQueries('O')) AS t1
-                WHERE t1.Username=?""",[UserName])
-        else:
-            return format_error_response("Either sessionNo or userName must be provided.")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error releasing delay queue: {e}")
-        return format_error_response("Failed to release delay queue. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "release_delay_queue")
+            cur = tdconn.cursor()
+            if SessionNo:
+                rows = cur.execute("""
+                    SELECT TDWM.TDWMReleaseDelayedRequest(HostId, SessionNo, RequestNo, 0)
+                    FROM TABLE (TDWMGetDelayedQueries('O')) AS t1
+                    WHERE SessionNo=?""",[SessionNo])
+            elif UserName:
+                rows = cur.execute("""
+                    SELECT TDWM.TDWMReleaseDelayedRequest(HostId, SessionNo, RequestNo, 0)
+                    FROM TABLE (TDWMGetDelayedQueries('O')) AS t1
+                    WHERE t1.Username=?""",[UserName])
+            else:
+                return format_error_response("Either sessionNo or userName must be provided.")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error releasing delay queue: {e}")
+            return format_error_response("Failed to release delay queue. Check server logs for details.")
 
 @with_connection_retry()
 async def show_tdwm_summary() -> ResponseType:
     """Show workloads summary information"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_tdwm_summary")
-        cur = tdconn.cursor()
-        rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMSummary()) AS t2""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing TDWM summary: {e}")
-        return format_error_response("Failed to show TDWM summary. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_tdwm_summary")
+            cur = tdconn.cursor()
+            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMSummary()) AS t2""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing TDWM summary: {e}")
+            return format_error_response("Failed to show TDWM summary. Check server logs for details.")
 
 @with_connection_retry()
 async def show_trottle_statistics(type: str) -> ResponseType:
     """Show throttle statistics for {type}"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_trottle_statistics")
-        cur = tdconn.cursor()
-        if type.upper() == "ALL":
-            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('A')) AS t1""")
-        elif type.upper() == "QUERY":
-            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('Q')) AS t1""")
-        elif type.upper() == "SESSION":
-            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('S')) AS t1""")
-        elif type.upper() == "WORKLOAD":
-            rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('W')) AS t1""")
-        else:
-            rows = cur.execute("""
-                    SELECT ObjectType(FORMAT 'x(10)'), rulename(FORMAT 'x(17)'),
-                        ObjectName(FORMAT 'x(13)'), active(FORMAT 'Z9'),
-                        throttlelimit as ThrLimit, delayed(FORMAT 'Z9'), throttletype as ThrType
-                    FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('A')) AS t1
-                    ORDER BY 1,2""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing throttle statistics: {e}")
-        return format_error_response("Failed to show throttle statistics. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_trottle_statistics")
+            cur = tdconn.cursor()
+            if type.upper() == "ALL":
+                rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('A')) AS t1""")
+            elif type.upper() == "QUERY":
+                rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('Q')) AS t1""")
+            elif type.upper() == "SESSION":
+                rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('S')) AS t1""")
+            elif type.upper() == "WORKLOAD":
+                rows = cur.execute("""SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('W')) AS t1""")
+            else:
+                rows = cur.execute("""
+                        SELECT ObjectType(FORMAT 'x(10)'), rulename(FORMAT 'x(17)'),
+                            ObjectName(FORMAT 'x(13)'), active(FORMAT 'Z9'),
+                            throttlelimit as ThrLimit, delayed(FORMAT 'Z9'), throttletype as ThrType
+                        FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('A')) AS t1
+                        ORDER BY 1,2""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing throttle statistics: {e}")
+            return format_error_response("Failed to show throttle statistics. Check server logs for details.")
 
 @with_connection_retry()
 async def list_query_band(Type: str) -> ResponseType:
     """List query band for {Type}"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "list_query_band")
-        cur = tdconn.cursor()
-        if Type.upper() == "TRANSACTION":
-            rows = cur.execute("""
-                SELECT * FROM TABLE(GetQueryBandPairs(1)) AS t1""")
-        elif Type.upper() == "PROFILE":
-            rows = cur.execute("""
-                SELECT * FROM TABLE(GetQueryBandPairs(3)) AS t1""")
-        elif Type.upper() == "SESSION":
-            rows = cur.execute("""
-                SELECT * FROM TABLE(GetQueryBandPairs(2)) AS t1""")
-        else:
-            rows = cur.execute("""
-                SELECT * FROM TABLE(GetQueryBandPairs(0)) AS t1""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error listing query band: {e}")
-        return format_error_response("Failed to list query band. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "list_query_band")
+            cur = tdconn.cursor()
+            if Type.upper() == "TRANSACTION":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE(GetQueryBandPairs(1)) AS t1""")
+            elif Type.upper() == "PROFILE":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE(GetQueryBandPairs(3)) AS t1""")
+            elif Type.upper() == "SESSION":
+                rows = cur.execute("""
+                    SELECT * FROM TABLE(GetQueryBandPairs(2)) AS t1""")
+            else:
+                rows = cur.execute("""
+                    SELECT * FROM TABLE(GetQueryBandPairs(0)) AS t1""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error listing query band: {e}")
+            return format_error_response("Failed to list query band. Check server logs for details.")
 
 @with_connection_retry()
 async def show_query_log(User: str) -> ResponseType:
     """Show query log for user {User}"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_query_log")
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-                sel * from dbc.qrylogv where upper(username)=upper(?) and trunc(collectTimeStamp) = trunc(date) ORDER BY queryid""", [User])
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing query log: {e}")
-        return format_error_response("Failed to show query log. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_query_log")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                    sel * from dbc.qrylogv where upper(username)=upper(?) and trunc(collectTimeStamp) = trunc(date) ORDER BY queryid""", [User])
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing query log: {e}")
+            return format_error_response("Failed to show query log. Check server logs for details.")
 
 @with_connection_retry()
 async def show_cod_limits() -> ResponseType:
     """Show COD (Capacity On Demand) limits"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_cod_limits")
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-                SELECT * FROM TABLE (TD_SYSFNLIB.TD_get_COD_Limits( ) ) As d""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing COD limits: {e}")
-        return format_error_response("Failed to show COD limits. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_cod_limits")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                    SELECT * FROM TABLE (TD_SYSFNLIB.TD_get_COD_Limits( ) ) As d""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing COD limits: {e}")
+            return format_error_response("Failed to show COD limits. Check server logs for details.")
 
 @with_connection_retry()
 async def tdwm_list_clasification() -> ResponseType:
@@ -532,256 +532,256 @@ async def tdwm_list_clasification() -> ResponseType:
 @with_connection_retry()
 async def show_top_users(type: str) -> ResponseType:
     """Show {type} users using resources"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_top_users")
-        cur = tdconn.cursor()
-        if type.upper() == "TOP":
-            query = """
-                Sel top 15 Username (Format 'x(10)'), queryband(Format 'x(40)'),AppID, ClientAddr, StartTime, AMPCPUTime, QueryText from dbc.qrylogV
-                where ampcputime > .154 order by ampcputime desc"""
-        else:
-            query = """
-                Sel Username (Format 'x(10)'), queryband(Format 'x(40)'),AppID, ClientAddr, StartTime, AMPCPUTime, QueryText from dbc.qrylogV
-                where ampcputime > .154 order by ampcputime desc"""
-        rows = cur.execute(query)
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing top users: {e}")
-        return format_error_response("Failed to show top users. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_top_users")
+            cur = tdconn.cursor()
+            if type.upper() == "TOP":
+                query = """
+                    Sel top 15 Username (Format 'x(10)'), queryband(Format 'x(40)'),AppID, ClientAddr, StartTime, AMPCPUTime, QueryText from dbc.qrylogV
+                    where ampcputime > .154 order by ampcputime desc"""
+            else:
+                query = """
+                    Sel Username (Format 'x(10)'), queryband(Format 'x(40)'),AppID, ClientAddr, StartTime, AMPCPUTime, QueryText from dbc.qrylogV
+                    where ampcputime > .154 order by ampcputime desc"""
+            rows = cur.execute(query)
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing top users: {e}")
+            return format_error_response("Failed to show top users. Check server logs for details.")
 
 @with_connection_retry()
 async def show_sw_event_log(type: str) -> ResponseType:
     """Show {type} event log"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_sw_event_log")
-        cur = tdconn.cursor()
-        if type.upper() == "OPERATIONAL":
-            query = """SELECT top 20
-                TheDate,
-                TheTime,
-                Event_Tag,
-                Category,
-                Severity,
-                Text,
-                PMA,
-                Vproc,
-                Partition,
-                Task,
-                TheFunction,
-                SW_Version,
-                Line
-            FROM
-                DBC.SW_EVENT_LOG
-            WHERE
-                (trunc(TheDate) between trunc(date-7) and trunc(date)) and
-                theFunction IS NOT NULL AND
-                Text LIKE '%operational%'
-            ORDER BY
-                TheDate desc, TheTime desc;"""
-        else:
-            query = """SELECT top 20
-                TheDate,
-                TheTime,
-                Event_Tag,
-                Category,
-                Severity,
-                Text,
-                PMA,
-                Vproc,
-                Partition,
-                Task,
-                TheFunction,
-                SW_Version,
-                Line
-            FROM
-                DBC.SW_EVENT_LOG
-            WHERE
-                (trunc(TheDate) between trunc(date-1) and trunc(date)) and
-                theFunction IS NOT NULL AND
-                Text LIKE '%operational%' or Text LIKE '%Event%'
-            ORDER BY
-                TheDate desc, TheTime desc;"""
-        rows = cur.execute(query)
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing SW event log: {e}")
-        return format_error_response("Failed to show event log. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_sw_event_log")
+            cur = tdconn.cursor()
+            if type.upper() == "OPERATIONAL":
+                query = """SELECT top 20
+                    TheDate,
+                    TheTime,
+                    Event_Tag,
+                    Category,
+                    Severity,
+                    Text,
+                    PMA,
+                    Vproc,
+                    Partition,
+                    Task,
+                    TheFunction,
+                    SW_Version,
+                    Line
+                FROM
+                    DBC.SW_EVENT_LOG
+                WHERE
+                    (trunc(TheDate) between trunc(date-7) and trunc(date)) and
+                    theFunction IS NOT NULL AND
+                    Text LIKE '%operational%'
+                ORDER BY
+                    TheDate desc, TheTime desc;"""
+            else:
+                query = """SELECT top 20
+                    TheDate,
+                    TheTime,
+                    Event_Tag,
+                    Category,
+                    Severity,
+                    Text,
+                    PMA,
+                    Vproc,
+                    Partition,
+                    Task,
+                    TheFunction,
+                    SW_Version,
+                    Line
+                FROM
+                    DBC.SW_EVENT_LOG
+                WHERE
+                    (trunc(TheDate) between trunc(date-1) and trunc(date)) and
+                    theFunction IS NOT NULL AND
+                    Text LIKE '%operational%' or Text LIKE '%Event%'
+                ORDER BY
+                    TheDate desc, TheTime desc;"""
+            rows = cur.execute(query)
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing SW event log: {e}")
+            return format_error_response("Failed to show event log. Check server logs for details.")
 
 @with_connection_retry()
 async def show_tasm_statistics() -> ResponseType:
     """Show TASM statistics"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_tasm_statistics")
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            select
-                TheDatePN (FORMAT'yy/mm/dd', TITLE '// //Date'),
-                TheHour (TITLE '// //Hour'),
-                TheMinute (TITLE '// //Minute'),
-                DayOfWeek (TITLE 'Day of Week'),
-                NodeID (TITLE '//Node ID'),
-                rulenamePN (TITLE '//Workload//Name'),
-                ppidPN (FORMAT '9', TITLE '// //PP ID'),
-                pgidPN (FORMAT 'ZZ9', TITLE '// //PG ID')
-                ,average(CPUPctPN) (FORMAT 'ZZ9.9', TITLE 'CPU//Util// %')
-                ,average(PhysicalIOPN) (FORMAT 'ZZ9.9', TITLE 'Avg//I/Os//per Sec')
-                ,average(PhysicalIOMBPN) (FORMAT 'ZZ9.9', TITLE 'Avg//I/O Mbytes//per Sec')
-                ,average(WorkMsgSendDelayCntPN) (FORMAT 'ZZ9.9', TITLE '# AWT Requests//Successfully Sent//per AMP')
-                ,average(NumRequestsPN) (FORMAT 'ZZ9.9', TITLE '# Tasks//Assigned AWTs//per AMP')
-                ,average(AwtReleasesPN) (FORMAT 'ZZ9.9', TITLE '# AWTs//Released//per AMP')
-                ,average(QLengthAmpAvgAPN) (FORMAT 'ZZ9.9', TITLE '# Requests//Still Waiting//for AWT')
-                ,max(WorkMsgSendDelayMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Send-Side//Wait')
-                ,max(QWaitTimeMaxMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Receive-Side//Wait')
-                ,max(WorkMsgReceiveDelayMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Receive-Side//Still Waiting')
-                ,average(zeroifnull(WorkMsgSendDelayRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Send-Side//Wait')
-                ,average(zeroifnull(QwaitTimeRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Receive- Side//Wait')
-                ,average(zeroifnull(WorkMsgReceiveDelayRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Receive-Side//Still Waiting')
-                ,max(ServiceTimeMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Time//AWT Held')
-                ,average(zeroifnull(ServiceTimeAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Time//AWT Held')
-                ,max(WorkTimeInUseMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Time//AWT Held or Still Held')
-                ,average(AwtUsedAPN) (FORMAT 'ZZ9.9', TITLE 'Avg//AWTs//In Use')
-            FROM
-            (
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_tasm_statistics")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
                 select
-                    t1.TheDate as TheDatePN
-                    ,extract(hour from t1.thetime) TheHour
-                    ,extract(Minute from t1.thetime) TheMinute
-                    ,CASE WHEN day_of_week = 1 THEN 'Sunday'
-                    WHEN day_of_week = 2 THEN 'Monday'
-                    WHEN day_of_week = 3 THEN 'Tuesday'
-                    WHEN day_of_week = 4 THEN 'Wednesday'
-                    WHEN day_of_week = 5 THEN 'Thursday'
-                    WHEN day_of_week = 6 THEN 'Friday'
-                    WHEN day_of_week = 7 THEN 'Saturday'
-                    END AS dayofweek,
-                    NodeId,
-                    rulename as
-                    rulenamePN,
-                    ppid as ppidPN,
-                    pgid as pgidPN
-                    ,SUM(CPUPct) as CPUPctPN
-                    ,sum((PhysicalReadPerm +
-                    PhysicalWritePerm+PhysicalReadOther+PhysicalWriteOther)/(CentiSecs/100)) as
-                    PhysicalIOPN
-                    ,sum((PhysicalReadPermKB +
-                    PhysicalWritePermKB+PhysicalReadOtherKB+PhysicalWriteOtherKB)/(1024*CentiSecs/100)) as PhysicalIOMBPN
-                    ,sum(WorkMsgSendDelayCnt/AmpCount) as WorkMsgSendDelayCntPN
-                    ,sum(NumRequests/AmpCount) as NumRequestsPN
-                    ,sum(AwtReleases/AmpCount) as AwtReleasesPN
-                    ,sum(WorkMsgReceiveDelayCnt/AmpCount) as QLengthAmpAvgAPN
-                    ,max(WorkMsgSendDelayMax) as WorkMsgSendDelayMPN
-                    ,max(WorkMsgReceiveDelayMax) as WorkMsgReceiveDelayMPN
-                    ,max(QWaitTimeMax) as QWaitTimeMaxMPN
-                    ,sum(WorkMsgSendDelayRequestAvg) as WorkMsgSendDelayRequestAPN
-                    ,sum(WorkMsgReceiveDelayRequestAvg) as WorkMsgReceiveDelayRequestAPN
-                    ,sum(QWaitTimeRequestAvg) as QWaitTimeRequestAPN
-                    ,sum(ServiceTimeRequestAvg) as ServiceTimeAPN
-                    ,max(ServiceTimeMax) as ServiceTimeMPN
-                    ,max(WorkTimeInUseMax) as WorkTimeInUseMPN
-                    ,sum(AWTUsedAvg/AmpCount) as AwtUsedAPN
+                    TheDatePN (FORMAT'yy/mm/dd', TITLE '// //Date'),
+                    TheHour (TITLE '// //Hour'),
+                    TheMinute (TITLE '// //Minute'),
+                    DayOfWeek (TITLE 'Day of Week'),
+                    NodeID (TITLE '//Node ID'),
+                    rulenamePN (TITLE '//Workload//Name'),
+                    ppidPN (FORMAT '9', TITLE '// //PP ID'),
+                    pgidPN (FORMAT 'ZZ9', TITLE '// //PG ID')
+                    ,average(CPUPctPN) (FORMAT 'ZZ9.9', TITLE 'CPU//Util// %')
+                    ,average(PhysicalIOPN) (FORMAT 'ZZ9.9', TITLE 'Avg//I/Os//per Sec')
+                    ,average(PhysicalIOMBPN) (FORMAT 'ZZ9.9', TITLE 'Avg//I/O Mbytes//per Sec')
+                    ,average(WorkMsgSendDelayCntPN) (FORMAT 'ZZ9.9', TITLE '# AWT Requests//Successfully Sent//per AMP')
+                    ,average(NumRequestsPN) (FORMAT 'ZZ9.9', TITLE '# Tasks//Assigned AWTs//per AMP')
+                    ,average(AwtReleasesPN) (FORMAT 'ZZ9.9', TITLE '# AWTs//Released//per AMP')
+                    ,average(QLengthAmpAvgAPN) (FORMAT 'ZZ9.9', TITLE '# Requests//Still Waiting//for AWT')
+                    ,max(WorkMsgSendDelayMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Send-Side//Wait')
+                    ,max(QWaitTimeMaxMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Receive-Side//Wait')
+                    ,max(WorkMsgReceiveDelayMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Receive-Side//Still Waiting')
+                    ,average(zeroifnull(WorkMsgSendDelayRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Send-Side//Wait')
+                    ,average(zeroifnull(QwaitTimeRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Receive- Side//Wait')
+                    ,average(zeroifnull(WorkMsgReceiveDelayRequestAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Receive-Side//Still Waiting')
+                    ,max(ServiceTimeMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Time//AWT Held')
+                    ,average(zeroifnull(ServiceTimeAPN)) (FORMAT 'ZZ9.99', TITLE 'Avg//Time//AWT Held')
+                    ,max(WorkTimeInUseMPN) (FORMAT 'ZZ9.99', TITLE 'Max//Time//AWT Held or Still Held')
+                    ,average(AwtUsedAPN) (FORMAT 'ZZ9.9', TITLE 'Avg//AWTs//In Use')
                 FROM
-                    DBC.ResSpsView as T1
-                    LEFT OUTER JOIN
-                    tdwm.RuleDefs as T2
-                    on (T1.WDid = T2.RuleId AND T2.RuleType =5)
-                    inner join
-                    sys_calendar.CALENDAR b
-                    on calendar_date = thedate
-                where thedate = date and active >0 group by 1,2,3,4,5,6,7,8
-            ) as SumPNTbl
-            group by 1,2,3,4,5,6,7,8 order by 1,2,3,4,5,6,7""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing TASM statistics: {e}")
-        return format_error_response("Failed to show TASM statistics. Check server logs for details.")
+                (
+                    select
+                        t1.TheDate as TheDatePN
+                        ,extract(hour from t1.thetime) TheHour
+                        ,extract(Minute from t1.thetime) TheMinute
+                        ,CASE WHEN day_of_week = 1 THEN 'Sunday'
+                        WHEN day_of_week = 2 THEN 'Monday'
+                        WHEN day_of_week = 3 THEN 'Tuesday'
+                        WHEN day_of_week = 4 THEN 'Wednesday'
+                        WHEN day_of_week = 5 THEN 'Thursday'
+                        WHEN day_of_week = 6 THEN 'Friday'
+                        WHEN day_of_week = 7 THEN 'Saturday'
+                        END AS dayofweek,
+                        NodeId,
+                        rulename as
+                        rulenamePN,
+                        ppid as ppidPN,
+                        pgid as pgidPN
+                        ,SUM(CPUPct) as CPUPctPN
+                        ,sum((PhysicalReadPerm +
+                        PhysicalWritePerm+PhysicalReadOther+PhysicalWriteOther)/(CentiSecs/100)) as
+                        PhysicalIOPN
+                        ,sum((PhysicalReadPermKB +
+                        PhysicalWritePermKB+PhysicalReadOtherKB+PhysicalWriteOtherKB)/(1024*CentiSecs/100)) as PhysicalIOMBPN
+                        ,sum(WorkMsgSendDelayCnt/AmpCount) as WorkMsgSendDelayCntPN
+                        ,sum(NumRequests/AmpCount) as NumRequestsPN
+                        ,sum(AwtReleases/AmpCount) as AwtReleasesPN
+                        ,sum(WorkMsgReceiveDelayCnt/AmpCount) as QLengthAmpAvgAPN
+                        ,max(WorkMsgSendDelayMax) as WorkMsgSendDelayMPN
+                        ,max(WorkMsgReceiveDelayMax) as WorkMsgReceiveDelayMPN
+                        ,max(QWaitTimeMax) as QWaitTimeMaxMPN
+                        ,sum(WorkMsgSendDelayRequestAvg) as WorkMsgSendDelayRequestAPN
+                        ,sum(WorkMsgReceiveDelayRequestAvg) as WorkMsgReceiveDelayRequestAPN
+                        ,sum(QWaitTimeRequestAvg) as QWaitTimeRequestAPN
+                        ,sum(ServiceTimeRequestAvg) as ServiceTimeAPN
+                        ,max(ServiceTimeMax) as ServiceTimeMPN
+                        ,max(WorkTimeInUseMax) as WorkTimeInUseMPN
+                        ,sum(AWTUsedAvg/AmpCount) as AwtUsedAPN
+                    FROM
+                        DBC.ResSpsView as T1
+                        LEFT OUTER JOIN
+                        tdwm.RuleDefs as T2
+                        on (T1.WDid = T2.RuleId AND T2.RuleType =5)
+                        inner join
+                        sys_calendar.CALENDAR b
+                        on calendar_date = thedate
+                    where thedate = date and active >0 group by 1,2,3,4,5,6,7,8
+                ) as SumPNTbl
+                group by 1,2,3,4,5,6,7,8 order by 1,2,3,4,5,6,7""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing TASM statistics: {e}")
+            return format_error_response("Failed to show TASM statistics. Check server logs for details.")
 
 @with_connection_retry()
 async def show_tasm_even_history() -> ResponseType:
     """Show TASM event history"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_tasm_even_history")
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT entryts,
-                SUBSTR(entrykind,1,10) "kind",
-                SUBSTR (entryname,1,20) "name",
-                CAST (eventvalue as float format '999.9999') "evt value",
-                CAST (lastvalue as float format '999.9999') "last value",
-                spare2 "spare Int",
-                SUBSTR (activity,1,10) "activity id",
-                SUBSTR (activityname,1,20) "act name", seqno
-            FROM tdwmeventhistory order by entryts, seqno""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing TASM event history: {e}")
-        return format_error_response("Failed to show TASM event history. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_tasm_even_history")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT entryts,
+                    SUBSTR(entrykind,1,10) "kind",
+                    SUBSTR (entryname,1,20) "name",
+                    CAST (eventvalue as float format '999.9999') "evt value",
+                    CAST (lastvalue as float format '999.9999') "last value",
+                    spare2 "spare Int",
+                    SUBSTR (activity,1,10) "activity id",
+                    SUBSTR (activityname,1,20) "act name", seqno
+                FROM tdwmeventhistory order by entryts, seqno""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing TASM event history: {e}")
+            return format_error_response("Failed to show TASM event history. Check server logs for details.")
 
 @with_connection_retry()
 async def show_tasm_rule_history_red() -> ResponseType:
     """What caused the system to enter the RED state"""
-    tdconn = await get_connection()
-    def _run():
-        _set_queryband(tdconn, "show_tasm_rule_history_red")
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            WITH RECURSIVE
-            CausalAnalysis(EntryTS,
-            EntryKind, EntryID, EntryName, Activity,Activityid) AS
-            (
-            SELECT EntryTS, EntryKind, EntryID, EntryName, Activity, Activityid
-            FROM DBC.TDWMEventHistory
-            WHERE EntryKind = 'SYSCON' AND EntryName = 'RED' AND Activity = 'ACTIVE'
-            UNION ALL
-            SELECT Cause.EntryTS,Cause.EntryKind,Cause.EntryID,
-                Cause.EntryName,Cause.Activity,Cause.Activityid
-            FROM CausalAnalysis Condition INNER JOIN DBC.TDWMEventHistory Cause
-            ON Condition.EntryKind = Cause.Activity AND
-                Condition.EntryID = Cause.Activityid)
-            SELECT * FROM CausalAnalysis
-            ORDER BY 1 DESC""")
-        return format_text_response(list(rows.fetchall()))
-    try:
-        return await asyncio.to_thread(_run)
-    except ConnectionError:
-        raise
-    except Exception as e:
-        logger.error(f"Error showing TASM rule history: {e}")
-        return format_error_response("Failed to show TASM rule history. Check server logs for details.")
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "show_tasm_rule_history_red")
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                WITH RECURSIVE
+                CausalAnalysis(EntryTS,
+                EntryKind, EntryID, EntryName, Activity,Activityid) AS
+                (
+                SELECT EntryTS, EntryKind, EntryID, EntryName, Activity, Activityid
+                FROM DBC.TDWMEventHistory
+                WHERE EntryKind = 'SYSCON' AND EntryName = 'RED' AND Activity = 'ACTIVE'
+                UNION ALL
+                SELECT Cause.EntryTS,Cause.EntryKind,Cause.EntryID,
+                    Cause.EntryName,Cause.Activity,Cause.Activityid
+                FROM CausalAnalysis Condition INNER JOIN DBC.TDWMEventHistory Cause
+                ON Condition.EntryKind = Cause.Activity AND
+                    Condition.EntryID = Cause.Activityid)
+                SELECT * FROM CausalAnalysis
+                ORDER BY 1 DESC""")
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error showing TASM rule history: {e}")
+            return format_error_response("Failed to show TASM rule history. Check server logs for details.")
 
 @with_connection_retry()
 async def get_active_ruleset_name() -> str:
     """Get the currently active ruleset name."""
     try:
-        tdconn = await get_connection()
-        cur = tdconn.cursor()
-        rows = cur.execute("""
-            SELECT ConfigName
-            FROM TDWM.Configurations
-            WHERE ActiveFlag = 'Y'
-            LIMIT 1
-        """)
-        result = rows.fetchone()
-        return result[0] if result else "MyFirstConfig"
+        async with acquire_connection() as tdconn:
+            cur = tdconn.cursor()
+            rows = cur.execute("""
+                SELECT ConfigName
+                FROM TDWM.Configurations
+                WHERE ActiveFlag = 'Y'
+                LIMIT 1
+            """)
+            result = rows.fetchone()
+            return result[0] if result else "MyFirstConfig"
     except Exception as e:
         logger.warning(f"Error getting active ruleset, using default: {e}")
         return "MyFirstConfig"

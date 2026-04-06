@@ -18,6 +18,9 @@ class Settings:
     ssl_mode: str = ""
     encrypt_data: str = "true"
 
+    # Connection pool
+    pool_size: int = 3
+
     # Connection resilience
     max_retries: int = 3
     initial_backoff: float = 1.0
@@ -37,6 +40,7 @@ def settings_from_env() -> Settings:
     """Create Settings from environment variables."""
     return Settings(
         database_uri=os.getenv("DATABASE_URI") or None,
+        pool_size=int(os.getenv("DB_POOL_SIZE", "3")),
         logmech=os.getenv("DB_LOGMECH", "TD2"),
         logdata=os.getenv("DB_LOGDATA", ""),
         ssl_mode=os.getenv("DB_SSL_MODE", ""),
