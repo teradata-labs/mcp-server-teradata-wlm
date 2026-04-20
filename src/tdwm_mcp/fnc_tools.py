@@ -48,14 +48,23 @@ logger = logging.getLogger(__name__)
 # --- TDWM Tool Functions ---
 
 @with_connection_retry()
-async def list_sessions() -> ResponseType:
-    """Show my sessions"""
+async def list_sessions(username: str = None) -> ResponseType:
+    """Show all active sessions, optionally filtered by username"""
     async with acquire_connection() as tdconn:
         def _run():
             _set_queryband(tdconn, "show_sessions")
             cur = tdconn.cursor()
-            rows = cur.execute("SELECT * FROM TABLE (monitormysessions()) as t1")
-            return format_text_response(list(rows.fetchall()))
+            if username:
+                rows = cur.execute(
+                    "SELECT * FROM TABLE (MonitorSession(-1, '*', 0)) AS t1 WHERE UserName = ?",
+                    [username])
+            else:
+                rows = cur.execute(
+                    "SELECT * FROM TABLE (MonitorSession(-1, '*', 0)) AS t1")
+            result = list(rows.fetchall())
+            if not result:
+                return format_text_response("No active sessions found.")
+            return format_text_response(result)
         try:
             return await asyncio.to_thread(_run)
         except ConnectionError:
@@ -72,7 +81,10 @@ async def monitor_amp_load() -> ResponseType:
             _set_queryband(tdconn, "monitor_amp_load")
             cur = tdconn.cursor()
             rows = cur.execute("SELECT * FROM TABLE (MonitorAMPLoad()) AS t1")
-            return format_text_response(list(rows.fetchall()))
+            result = list(rows.fetchall())
+            if not result:
+                return format_text_response("No AMP load data returned. The monitoring subsystem may be temporarily unavailable.")
+            return format_text_response(result)
         try:
             return await asyncio.to_thread(_run)
         except ConnectionError:
@@ -106,7 +118,10 @@ async def monitor_config() -> ResponseType:
             _set_queryband(tdconn, "monitor_config")
             cur = tdconn.cursor()
             rows = cur.execute("SELECT t2.* FROM TABLE (MonitorVirtualConfig()) AS t2")
-            return format_text_response(list(rows.fetchall()))
+            result = list(rows.fetchall())
+            if not result:
+                return format_text_response("No configuration data returned. The monitoring subsystem may be temporarily unavailable.")
+            return format_text_response(result)
         try:
             return await asyncio.to_thread(_run)
         except ConnectionError:
@@ -123,7 +138,10 @@ async def list_resources() -> ResponseType:
             _set_queryband(tdconn, "show_physical_resources")
             cur = tdconn.cursor()
             rows = cur.execute("SELECT t2.* from table (MonitorPhysicalResource()) as t2")
-            return format_text_response(list(rows.fetchall()))
+            result = list(rows.fetchall())
+            if not result:
+                return format_text_response("No physical resource data returned. The monitoring subsystem may be temporarily unavailable.")
+            return format_text_response(result)
         try:
             return await asyncio.to_thread(_run)
         except ConnectionError:
@@ -176,6 +194,26 @@ async def abort_sessions_user(usr: str) -> ResponseType:
             return format_error_response("Failed to abort sessions. Check server logs for details.")
 
 @with_connection_retry()
+async def abort_session(session_id: int) -> ResponseType:
+    """Abort a specific session by session ID"""
+    session_id = int(session_id)
+    async with acquire_connection() as tdconn:
+        def _run():
+            _set_queryband(tdconn, "abort_session")
+            cur = tdconn.cursor()
+            rows = cur.execute(
+                "SELECT AbortSessions(-1, NULL, ?, 'Y', 'Y')",
+                [session_id])
+            return format_text_response(list(rows.fetchall()))
+        try:
+            return await asyncio.to_thread(_run)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error aborting session {session_id}: {e}")
+            return format_error_response(f"Failed to abort session {session_id}. Check server logs for details.")
+
+@with_connection_retry()
 async def list_active_WD() -> ResponseType:
     """List active workloads (WD)"""
     async with acquire_connection() as tdconn:
@@ -218,10 +256,20 @@ async def show_session_sql_steps(SessionNo: int) -> ResponseType:
         def _run():
             _set_queryband(tdconn, "show_sql_steps_for_session")
             cur = tdconn.cursor()
-            rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
-            row = rows.fetchall()[0]
+            rows = cur.execute(
+                "SELECT HostId, LogonPENo, PEState, AMPState FROM TABLE (MonitorSession(-1, '*', ?)) AS t1",
+                [SessionNo])
+            result = rows.fetchall()
+            if not result:
+                return format_text_response(f"Session {SessionNo} not found or not accessible. Verify session ID and MONITOR privilege.")
+            row = result[0]
             hostId = int(row[0])
             logonPENo = int(row[1])
+            peState = str(row[2]).strip() if row[2] else ""
+            ampState = str(row[3]).strip() if row[3] else ""
+            if peState.upper() == "IDLE" and ampState.upper() in ("IDLE", "UNKNOWN"):
+                return format_text_response(
+                    f"Session {SessionNo} is IDLE — no active SQL execution steps to display.")
             query = """
                 select
                     SQLStep,
@@ -240,7 +288,11 @@ async def show_session_sql_steps(SessionNo: int) -> ResponseType:
                 """.format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
             cur1 = tdconn.cursor()
             rows1 = cur1.execute(query)
-            return format_text_response(list(rows1.fetchall()))
+            steps = list(rows1.fetchall())
+            if not steps:
+                return format_text_response(
+                    f"Session {SessionNo} has no SQL steps available (state: PE={peState}, AMP={ampState}).")
+            return format_text_response(steps)
         try:
             return await asyncio.to_thread(_run)
         except ConnectionError:
@@ -257,8 +309,13 @@ async def monitor_session_query_band(SessionNo: int) -> ResponseType:
         def _run():
             _set_queryband(tdconn, "monitor_session_query_band")
             cur = tdconn.cursor()
-            rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
-            row = rows.fetchall()[0]
+            rows = cur.execute(
+                "SELECT HostId, LogonPENo FROM TABLE (MonitorSession(-1, '*', ?)) AS t1",
+                [SessionNo])
+            result = rows.fetchall()
+            if not result:
+                return format_text_response(f"Session {SessionNo} not found or not accessible. Verify session ID and MONITOR privilege.")
+            row = result[0]
             hostId = int(row[0])
             logonPENo = int(row[1])
             query = """
@@ -266,7 +323,10 @@ async def monitor_session_query_band(SessionNo: int) -> ResponseType:
                 """.format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
             cur1 = tdconn.cursor()
             rows1 = cur1.execute(query)
-            return format_text_response(list(rows1.fetchall()))
+            qb_result = list(rows1.fetchall())
+            if not qb_result or (qb_result and not qb_result[0][0]):
+                return format_text_response(f"No query band set for session {SessionNo}.")
+            return format_text_response(qb_result)
         try:
             return await asyncio.to_thread(_run)
         except ConnectionError:
@@ -283,14 +343,28 @@ async def show_session_sql_text(SessionNo: int) -> ResponseType:
         def _run():
             _set_queryband(tdconn, "show_sql_text_for_session")
             cur = tdconn.cursor()
-            rows = cur.execute("SELECT HostId, LogonPENo FROM TABLE (monitormysessions()) as t1 where SessionNo = ?", [SessionNo])
-            row = rows.fetchall()[0]
+            rows = cur.execute(
+                "SELECT HostId, LogonPENo, PEState, AMPState FROM TABLE (MonitorSession(-1, '*', ?)) AS t1",
+                [SessionNo])
+            result = rows.fetchall()
+            if not result:
+                return format_text_response(f"Session {SessionNo} not found or not accessible. Verify session ID and MONITOR privilege.")
+            row = result[0]
             hostId = int(row[0])
             logonPENo = int(row[1])
+            peState = str(row[2]).strip() if row[2] else ""
+            ampState = str(row[3]).strip() if row[3] else ""
+            if peState.upper() == "IDLE" and ampState.upper() in ("IDLE", "UNKNOWN"):
+                return format_text_response(
+                    f"Session {SessionNo} is IDLE — no active SQL to display.")
             query = "SELECT SQLTxt FROM TABLE (MonitorSQLText({hostId},{SessionNo},{logonPENo})) as t2".format(hostId=hostId, SessionNo=SessionNo, logonPENo=logonPENo)
             cur1 = tdconn.cursor()
             rows1 = cur1.execute(query)
-            return format_text_response(list(rows1.fetchall()))
+            sql_result = list(rows1.fetchall())
+            if not sql_result:
+                return format_text_response(
+                    f"No SQL text available for session {SessionNo} (state: PE={peState}, AMP={ampState}).")
+            return format_text_response(sql_result)
         try:
             return await asyncio.to_thread(_run)
         except ConnectionError:
@@ -300,14 +374,18 @@ async def show_session_sql_text(SessionNo: int) -> ResponseType:
             return format_error_response("Failed to show SQL text. Check server logs for details.")
 
 @with_connection_retry()
-async def list_delayed_request() -> ResponseType:
+async def list_delayed_request(queue_type: str = "A") -> ResponseType:
     """List all of the delayed queries"""
+    valid_types = {"A", "W", "O"}
+    queue_type = queue_type.upper() if queue_type else "A"
+    if queue_type not in valid_types:
+        queue_type = "A"
     async with acquire_connection() as tdconn:
         def _run():
             _set_queryband(tdconn, "list_delayed_request")
             cur = tdconn.cursor()
-            rows = cur.execute("""
-                SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1""")
+            rows = cur.execute(f"""
+                SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('{queue_type}')) AS t1""")
             return format_text_response(list(rows.fetchall()))
         try:
             return await asyncio.to_thread(_run)
@@ -391,7 +469,7 @@ async def release_delay_queue(SessionNo: int, UserName: str) -> ResponseType:
         def _run():
             _set_queryband(tdconn, "release_delay_queue")
             cur = tdconn.cursor()
-            if SessionNo:
+            if SessionNo is not None:
                 rows = cur.execute("""
                     SELECT TDWM.TDWMReleaseDelayedRequest(HostId, SessionNo, RequestNo, 0)
                     FROM TABLE (TDWMGetDelayedQueries('O')) AS t1
@@ -489,15 +567,27 @@ async def list_query_band(Type: str) -> ResponseType:
             return format_error_response("Failed to list query band. Check server logs for details.")
 
 @with_connection_retry()
-async def show_query_log(User: str) -> ResponseType:
+async def show_query_log(User: str, hours: int = 24, top_n: int = 100) -> ResponseType:
     """Show query log for user {User}"""
+    hours = max(1, min(int(hours), 168))
+    top_n = max(1, min(int(top_n), 500))
     async with acquire_connection() as tdconn:
         def _run():
             _set_queryband(tdconn, "show_query_log")
             cur = tdconn.cursor()
-            rows = cur.execute("""
-                    sel * from dbc.qrylogv where upper(username)=upper(?) and trunc(collectTimeStamp) = trunc(date) ORDER BY queryid""", [User])
-            return format_text_response(list(rows.fetchall()))
+            rows = cur.execute(f"""
+                    SELECT TOP {top_n}
+                        QueryID, UserName, StartTime, FirstRespTime,
+                        AMPCPUTime, TotalIOCount, SpoolUsage,
+                        QueryText, StatementType, ErrorCode
+                    FROM dbc.qrylogv
+                    WHERE UPPER(UserName) = UPPER(?)
+                      AND StartTime > CURRENT_TIMESTAMP - INTERVAL '{hours}' HOUR
+                    ORDER BY StartTime DESC""", [User])
+            result = list(rows.fetchall())
+            if not result:
+                return format_text_response(f"No query log entries found for user '{User}' in the last {hours} hours.")
+            return format_text_response(result)
         try:
             return await asyncio.to_thread(_run)
         except ConnectionError:
@@ -530,22 +620,24 @@ async def tdwm_list_clasification() -> ResponseType:
     return format_text_response(list([(entry[1], entry[2], entry[3], entry[4]) for entry in TDWM_CLASIFICATION_TYPE]))
 
 @with_connection_retry()
-async def show_top_users(type: str) -> ResponseType:
-    """Show {type} users using resources"""
+async def show_top_users(top_n: int = 20) -> ResponseType:
+    """Show top N users consuming the most resources"""
+    top_n = max(1, min(int(top_n), 500))
     async with acquire_connection() as tdconn:
         def _run():
             _set_queryband(tdconn, "show_top_users")
             cur = tdconn.cursor()
-            if type.upper() == "TOP":
-                query = """
-                    Sel top 15 Username (Format 'x(10)'), queryband(Format 'x(40)'),AppID, ClientAddr, StartTime, AMPCPUTime, QueryText from dbc.qrylogV
-                    where ampcputime > .154 order by ampcputime desc"""
-            else:
-                query = """
-                    Sel Username (Format 'x(10)'), queryband(Format 'x(40)'),AppID, ClientAddr, StartTime, AMPCPUTime, QueryText from dbc.qrylogV
-                    where ampcputime > .154 order by ampcputime desc"""
+            query = f"""
+                SELECT TOP {top_n} Username (Format 'x(10)'), queryband(Format 'x(40)'),
+                    AppID, ClientAddr, StartTime, AMPCPUTime, QueryText
+                FROM dbc.qrylogV
+                WHERE ampcputime > .154
+                ORDER BY ampcputime DESC"""
             rows = cur.execute(query)
-            return format_text_response(list(rows.fetchall()))
+            result = list(rows.fetchall())
+            if not result:
+                return format_text_response("No high-resource users found.")
+            return format_text_response(result)
         try:
             return await asyncio.to_thread(_run)
         except ConnectionError:
@@ -711,14 +803,15 @@ async def show_tasm_statistics() -> ResponseType:
             return format_error_response("Failed to show TASM statistics. Check server logs for details.")
 
 @with_connection_retry()
-async def show_tasm_even_history() -> ResponseType:
-    """Show TASM event history"""
+async def show_tasm_even_history(hours: int = 24) -> ResponseType:
+    """Show TASM event history for the last N hours"""
+    hours = max(1, min(int(hours), 720))
     async with acquire_connection() as tdconn:
         def _run():
             _set_queryband(tdconn, "show_tasm_even_history")
             cur = tdconn.cursor()
-            rows = cur.execute("""
-                SELECT entryts,
+            rows = cur.execute(f"""
+                SELECT TOP 500 entryts,
                     SUBSTR(entrykind,1,10) "kind",
                     SUBSTR (entryname,1,20) "name",
                     CAST (eventvalue as float format '999.9999') "evt value",
@@ -726,13 +819,23 @@ async def show_tasm_even_history() -> ResponseType:
                     spare2 "spare Int",
                     SUBSTR (activity,1,10) "activity id",
                     SUBSTR (activityname,1,20) "act name", seqno
-                FROM tdwmeventhistory order by entryts, seqno""")
-            return format_text_response(list(rows.fetchall()))
+                FROM tdwmeventhistory
+                WHERE EntryTS > CURRENT_TIMESTAMP - INTERVAL '{hours}' HOUR
+                ORDER BY entryts DESC, seqno""")
+            result = list(rows.fetchall())
+            if not result:
+                return format_text_response(f"No TASM events found in the last {hours} hours.")
+            return format_text_response(result)
         try:
             return await asyncio.to_thread(_run)
         except ConnectionError:
             raise
         except Exception as e:
+            error_str = str(e)
+            if "3807" in error_str:
+                return format_error_response(
+                    "TASM event history table (tdwmeventhistory) not found. "
+                    "TASM may not be configured on this system.")
             logger.error(f"Error showing TASM event history: {e}")
             return format_error_response("Failed to show TASM event history. Check server logs for details.")
 
@@ -798,10 +901,15 @@ async def handle_list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="show_sessions",
-            description="Display all active database sessions for the current user. Use this to monitor running queries, identify long-running operations, find session IDs for detailed analysis, or check current database activity. Returns session details including session number, username, SQL text, runtime, and state.",
+            description="Display all active database sessions across the system. Optionally filter by username. Requires MONITOR privilege with MONSESSION. Use this to monitor running queries, identify long-running operations, find session IDs for detailed analysis, or check current database activity. Returns session details including session number, username, SQL text, runtime, and state.",
             inputSchema={
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "description": "Optional: filter sessions by username. If omitted, shows all sessions.",
+                    },
+                },
             },
         ),
         types.Tool(
@@ -903,11 +1011,31 @@ async def handle_list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="abort_session",
+            description="TERMINATE a specific session by session ID. This immediately kills the running query in that session. Use for targeted session termination when you know the exact session to abort. IMPORTANT: Cannot be undone, will rollback uncommitted work. Requires session_id parameter.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "integer",
+                        "description": "Session ID to terminate",
+                    },
+                },
+                "required": ["session_id"],
+            },
+        ),
+        types.Tool(
             name="list_delayed_request",
             description="List all queries currently waiting in delay queues. Queries are delayed when they hit throttle limits, wait for locks, or are held by workload management rules. Use this to see why queries are waiting, identify queue backlogs, or check if specific users/queries are delayed. Returns session IDs, delay reasons, wait times, and queue types.",
             inputSchema={
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "description": "Queue type filter: A=All (default), W=Workload, O=System/Other",
+                        "enum": ["A", "W", "O"],
+                    },
+                },
             },
         ),
         types.Tool(
@@ -1016,13 +1144,21 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="show_query_log",
-            description="Display historical query log (DBQL) for a specific user. Shows past query execution including SQL text, execution times, resource consumption, and performance metrics. Use this to analyze user query patterns, identify frequently-slow queries, or investigate historical performance issues. Requires user parameter. Returns query history with timestamps, SQL, runtime, CPU time, and I/O statistics.",
+            description="Display historical query log (DBQL) for a specific user within a time window. Shows past query execution including SQL text, execution times, resource consumption, and performance metrics. Use this to analyze user query patterns, identify frequently-slow queries, or investigate historical performance issues. Requires user parameter. Returns query history with timestamps, SQL, runtime, CPU time, and I/O statistics.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "user": {
                         "type": "string",
                         "description": "User name",
+                    },
+                    "hours": {
+                        "type": "integer",
+                        "description": "Hours to look back (default 24, max 168)",
+                    },
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Maximum rows to return (default 100, max 500)",
                     },
                 },
                 "required": ["user"],
@@ -1046,16 +1182,15 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="show_top_users",
-            description="Display users consuming the most system resources. Valid types: 'TOP' (top consumers), 'ALL' (all users), or 'SYSTEM' (system accounts). Use this to identify resource-heavy users, find sources of system load, or track resource consumption by user for chargeback. Returns usernames, CPU time, I/O, spool usage, and query counts ranked by resource consumption.",
+            description="Display top N users consuming the most system resources (by AMP CPU time). Use this to identify resource-heavy users, find sources of system load, or track resource consumption by user for chargeback. Returns usernames, query bands, CPU time, and query text ranked by resource consumption.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "type": {
-                        "type": "string",
-                        "description": "top users",
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Number of top users to return (default 20, max 500)",
                     },
                 },
-                "required": [],
             },
         ),
         types.Tool(
@@ -1082,10 +1217,15 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="show_tasm_even_history",
-            description="Display historical TASM event log showing when workload management rules fired and what actions were taken. Use this to understand TASM behavior over time, troubleshoot why queries were delayed/rejected, or analyze workload management patterns. Returns timestamped TASM events including rule names, actions taken, and affected queries.",
+            description="Display historical TASM event log for a specified time window (up to 500 events). Shows when workload management rules fired and what actions were taken. Use this to understand TASM behavior over time, troubleshoot why queries were delayed/rejected, or analyze workload management patterns. Returns timestamped TASM events including rule names, actions taken, and affected queries.",
             inputSchema={
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "hours": {
+                        "type": "integer",
+                        "description": "Number of hours to look back (default 24, max 720)",
+                    },
+                },
             },
         ),
         types.Tool(
@@ -1337,7 +1477,7 @@ async def handle_tool_call(
 
     try:
         if name == "show_sessions":
-            return await list_sessions()
+            return await list_sessions(username=arguments.get("username"))
         elif name == "show_physical_resources":
             return await list_resources()
         elif name == "monitor_amp_load":
@@ -1354,12 +1494,14 @@ async def handle_tool_call(
             return await identify_blocking()
         elif name == "abort_sessions_user":
             return await abort_sessions_user(arguments["user"])
+        elif name == "abort_session":
+            return await abort_session(arguments["session_id"])
         elif name == "list_active_WD":
             return await list_active_WD()
         elif name == "list_WD":
             return await list_WDs()
         elif name == "list_delayed_request":
-            return await list_delayed_request()
+            return await list_delayed_request(queue_type=arguments.get("type", "A"))
         elif name == "abort_delayed_request":
             return await abort_delayed_request(arguments["sessionNo"])
         elif name == "list_utility_stats":
@@ -1380,19 +1522,23 @@ async def handle_tool_call(
         elif name == "monitor_session_query_band":
             return await monitor_session_query_band(arguments["sessionNo"])
         elif name == "show_query_log":
-            return await show_query_log(arguments["user"])
+            return await show_query_log(
+                arguments["user"],
+                hours=arguments.get("hours", 24),
+                top_n=arguments.get("top_n", 100)
+            )
         elif name == "show_cod_limits":
             return await show_cod_limits()
         elif name == "tdwm_list_clasification":
             return await tdwm_list_clasification()
         elif name == "show_top_users":
-            return await show_top_users(arguments.get("type", "ALL"))
+            return await show_top_users(top_n=arguments.get("top_n", 20))
         elif name == "show_sw_event_log":
             return await show_sw_event_log(arguments.get("Type", "ALL"))
         elif name == "show_tasm_statistics":
             return await show_tasm_statistics()
         elif name == "show_tasm_even_history":
-            return await show_tasm_even_history()
+            return await show_tasm_even_history(hours=arguments.get("hours", 24))
         elif name == "show_tasm_rule_history_red":
             return await show_tasm_rule_history_red()
         # ========== Priority 1 Configuration Management Dispatch ==========
