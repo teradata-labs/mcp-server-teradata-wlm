@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 import teradatasql
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 import logging
 import re
 
@@ -54,8 +54,12 @@ class TDConn:
             return
 
         parsed_url = urlparse(connection_url)
-        user = parsed_url.username
-        password = parsed_url.password
+        # Percent-decode credentials so passwords containing @ : / etc. can
+        # be URL-encoded in DATABASE_URI (common with LDAP directory
+        # passwords). Unencoded passwords are unaffected — unquote() only
+        # rewrites valid %XX sequences.
+        user = unquote(parsed_url.username) if parsed_url.username else parsed_url.username
+        password = unquote(parsed_url.password) if parsed_url.password else parsed_url.password
         host = parsed_url.hostname
         database = parsed_url.path.lstrip('/')
         self.connection_url = connection_url

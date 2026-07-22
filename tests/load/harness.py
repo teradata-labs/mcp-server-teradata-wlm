@@ -253,11 +253,20 @@ class TDObserver:
     def _run(self):
         try:
             import teradatasql
+            from urllib.parse import unquote
             parsed = urlparse(self.database_uri)
-            conn = teradatasql.connect(
-                host=parsed.hostname, user=parsed.username,
-                password=parsed.password,
+            params = dict(
+                host=parsed.hostname,
+                user=unquote(parsed.username) if parsed.username else None,
+                password=unquote(parsed.password) if parsed.password else None,
                 database=parsed.path.lstrip("/") or None)
+            # Honor the same auth mechanism the server uses (LDAP, KRB5, ...)
+            logmech = os.getenv("DB_LOGMECH", "TD2")
+            if logmech.upper() != "TD2":
+                params["logmech"] = logmech
+            if os.getenv("DB_LOGDATA"):
+                params["logdata"] = os.getenv("DB_LOGDATA")
+            conn = teradatasql.connect(**params)
         except Exception as e:
             self.error = f"observer connect failed: {_first_line(e)}"
             logger.warning(self.error)
