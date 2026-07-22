@@ -5,6 +5,24 @@ Builds per-request QueryBand strings for audit and workload management.
 
 from __future__ import annotations
 
+import os
+
+
+def _parse_extra(raw: str) -> list[tuple[str, str]]:
+    """Parse QUERYBAND_EXTRA ("Key=Val;Key2=Val2") into pairs."""
+    pairs = []
+    for part in raw.split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            if k.strip() and v.strip():
+                pairs.append((k.strip(), v.strip()))
+    return pairs
+
+
+# Extra static QueryBand pairs from the environment (e.g. a load-test run id
+# or deployment tag) so DBAs can identify and manage this server's traffic.
+_EXTRA_PAIRS = _parse_extra(os.getenv("QUERYBAND_EXTRA", ""))
+
 
 def sanitize_qb_value(val: str | None) -> str:
     """Sanitize a value for use in a Teradata QueryBand string."""
@@ -46,5 +64,7 @@ def build_queryband(
     add("ToolName", tool_name)
     add("Transport", transport)
     add("MCPUser", user)
+    for key, value in _EXTRA_PAIRS:
+        add(key, value)
 
     return "".join(parts)
