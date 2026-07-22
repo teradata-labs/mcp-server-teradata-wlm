@@ -184,11 +184,11 @@ def setup_oauth_endpoints():
 
 def create_starlette_app(mcp_server: Server, *, debug: bool = False, cors_origins: str = "*") -> Starlette:
     """Create a Starlette application that can serve the provided mcp server with SSE."""
-    from starlette.responses import JSONResponse
+    from starlette.responses import JSONResponse, Response
 
     sse = SseServerTransport("/messages/")
 
-    async def handle_sse(request: Request) -> None:
+    async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(
                 request.scope,
                 request.receive,
@@ -199,6 +199,9 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False, cors_origin
                 write_stream,
                 mcp_server.create_initialization_options(),
             )
+        # Starlette requires route endpoints to return a Response; the SSE
+        # stream has already been sent via the raw ASGI interface above.
+        return Response()
 
     # Create base routes for SSE
     routes = [
