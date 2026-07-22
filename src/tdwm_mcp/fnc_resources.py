@@ -5,6 +5,7 @@ This module contains all the resource functions that are exposed through the MCP
 Provides access to database schemas, tables, and TDWM configuration as resources.
 """
 
+import asyncio
 import logging
 from typing import Any
 import mcp.types as types
@@ -13,7 +14,8 @@ import re
 from urllib.parse import urlparse
 from .connection_manager import TeradataConnectionManager
 from .retry_utils import with_connection_retry
-from .fnc_common import acquire_connection, run_db, rows_to_json
+from .fnc_common import acquire_connection, run_db, rows_to_json, get_tool_timeouts
+from . import metrics
 
 # Import reference data resource handlers
 from .resource_reference import (
@@ -270,117 +272,136 @@ async def handle_list_resources() -> list[types.Resource]:
 
 
 async def handle_read_resource(uri: str) -> str:
-    """Read a specific resource."""
+    """Read a specific resource, with a deadline and metrics.
+
+    Resource reads use the read-tool deadline; a timed-out DB query is
+    aborted via the run_db cancel path.
+    """
     # Convert AnyUrl object to string if needed
     uri = str(uri)
 
     logger.debug(f"Handling read_resource request for: {uri}")
 
+    read_timeout, _ = get_tool_timeouts()
     try:
-        # Legacy/Basic Resources
-        if uri == "tdwm://sessions":
-            return await _get_sessions_resource()
-        elif uri == "tdwm://workloads":
-            return await _get_workloads_resource()
-        elif uri == "tdwm://active-workloads":
-            return await _get_active_workloads_resource()
-        elif uri == "tdwm://summary":
-            return await _get_summary_resource()
-        elif uri == "tdwm://delayed-queries":
-            return await _get_delayed_queries_resource()
-        elif uri == "tdwm://throttle-statistics":
-            return await _get_throttle_statistics_resource()
-        elif uri == "tdwm://physical-resources":
-            return await _get_physical_resources_resource()
-        elif uri == "tdwm://amp-load":
-            return await _get_amp_load_resource()
-        elif uri == "tdwm://classification-types":
-            return await _get_classification_types_resource()
-
-        # Reference Data Resources (Phase 1)
-        elif uri == "tdwm://reference/classification-types":
-            return await get_classification_types_all()
-        elif uri == "tdwm://reference/operators":
-            return await get_operators_reference()
-        elif uri == "tdwm://reference/subcriteria-types":
-            return await get_subcriteria_reference()
-        elif uri == "tdwm://reference/actions":
-            return await get_actions_reference()
-        elif uri == "tdwm://reference/throttle-types":
-            return await get_throttle_types_reference()
-        elif uri == "tdwm://reference/states":
-            return await get_states_reference()
-        elif uri == "tdwm://reference/catalog":
-            return await get_reference_catalog()
-
-        # Template Resources (Phase 2)
-        elif uri == "tdwm://templates/throttle":
-            return await get_throttle_templates_list()
-        elif uri == "tdwm://templates/filter":
-            return await get_filter_templates_list()
-        elif uri == "tdwm://templates/catalog":
-            return await get_templates_catalog()
-
-        # Ruleset Exploration Resources (Phase 3)
-        elif uri == "tdwm://rulesets":
-            return await get_rulesets_list()
-        elif uri == "tdwm://system/active-ruleset":
-            return await get_active_ruleset_name()
-
-        # Workflow Resources (Phase 4)
-        elif uri == "tdwm://workflows":
-            return await get_workflows_list()
-
-        # Parameterized Resources (using regex matching)
-        # tdwm://reference/classification-types/{category}
-        elif match := re.match(r"tdwm://reference/classification-types/(.+)", uri):
-            category = match.group(1)
-            return await get_classification_types_by_category(category)
-        # tdwm://template/throttle/{template_id}
-        elif match := re.match(r"tdwm://template/throttle/(.+)", uri):
-            template_id = match.group(1)
-            return await get_throttle_template(template_id)
-        # tdwm://template/filter/{template_id}
-        elif match := re.match(r"tdwm://template/filter/(.+)", uri):
-            template_id = match.group(1)
-            return await get_filter_template(template_id)
-        # tdwm://ruleset/{ruleset_name}/throttle/{throttle_name}
-        elif match := re.match(r"tdwm://ruleset/([^/]+)/throttle/(.+)", uri):
-            ruleset_name = match.group(1)
-            throttle_name = match.group(2)
-            return await get_throttle_details(ruleset_name, throttle_name)
-        # tdwm://ruleset/{ruleset_name}/filter/{filter_name}
-        elif match := re.match(r"tdwm://ruleset/([^/]+)/filter/(.+)", uri):
-            ruleset_name = match.group(1)
-            filter_name = match.group(2)
-            return await get_filter_details(ruleset_name, filter_name)
-        # tdwm://ruleset/{ruleset_name}/throttles
-        elif match := re.match(r"tdwm://ruleset/([^/]+)/throttles$", uri):
-            ruleset_name = match.group(1)
-            return await get_ruleset_throttles(ruleset_name)
-        # tdwm://ruleset/{ruleset_name}/filters
-        elif match := re.match(r"tdwm://ruleset/([^/]+)/filters$", uri):
-            ruleset_name = match.group(1)
-            return await get_ruleset_filters(ruleset_name)
-        # tdwm://ruleset/{ruleset_name}/pending-changes
-        elif match := re.match(r"tdwm://ruleset/([^/]+)/pending-changes$", uri):
-            ruleset_name = match.group(1)
-            return await get_pending_changes(ruleset_name)
-        # tdwm://ruleset/{ruleset_name}
-        elif match := re.match(r"tdwm://ruleset/(.+)", uri):
-            ruleset_name = match.group(1)
-            return await get_ruleset_details(ruleset_name)
-        # tdwm://workflow/{workflow_id}
-        elif match := re.match(r"tdwm://workflow/(.+)", uri):
-            workflow_id = match.group(1)
-            return await get_workflow(workflow_id)
-
-        else:
-            raise ValueError(f"Unknown resource URI: {uri}")
-
+        async with asyncio.timeout(read_timeout):
+            result = await _dispatch_resource(uri)
+        metrics.RESOURCE_READS.labels(outcome="success").inc()
+        return result
+    except TimeoutError:
+        metrics.RESOURCE_READS.labels(outcome="timeout").inc()
+        logger.error(f"Resource read {uri} exceeded its {read_timeout:g}s deadline")
+        return format_error_response(
+            f"Resource read timed out after {read_timeout:g}s. "
+            "The in-flight database request was aborted.")
     except Exception as e:
+        metrics.RESOURCE_READS.labels(outcome="error").inc()
         logger.error(f"Error reading resource {uri}: {e}")
         return format_error_response(str(e))
+
+
+async def _dispatch_resource(uri: str) -> str:
+    """Route a resource URI to its handler. Raises ValueError if unknown."""
+    # Legacy/Basic Resources
+    if uri == "tdwm://sessions":
+        return await _get_sessions_resource()
+    elif uri == "tdwm://workloads":
+        return await _get_workloads_resource()
+    elif uri == "tdwm://active-workloads":
+        return await _get_active_workloads_resource()
+    elif uri == "tdwm://summary":
+        return await _get_summary_resource()
+    elif uri == "tdwm://delayed-queries":
+        return await _get_delayed_queries_resource()
+    elif uri == "tdwm://throttle-statistics":
+        return await _get_throttle_statistics_resource()
+    elif uri == "tdwm://physical-resources":
+        return await _get_physical_resources_resource()
+    elif uri == "tdwm://amp-load":
+        return await _get_amp_load_resource()
+    elif uri == "tdwm://classification-types":
+        return await _get_classification_types_resource()
+
+    # Reference Data Resources (Phase 1)
+    elif uri == "tdwm://reference/classification-types":
+        return await get_classification_types_all()
+    elif uri == "tdwm://reference/operators":
+        return await get_operators_reference()
+    elif uri == "tdwm://reference/subcriteria-types":
+        return await get_subcriteria_reference()
+    elif uri == "tdwm://reference/actions":
+        return await get_actions_reference()
+    elif uri == "tdwm://reference/throttle-types":
+        return await get_throttle_types_reference()
+    elif uri == "tdwm://reference/states":
+        return await get_states_reference()
+    elif uri == "tdwm://reference/catalog":
+        return await get_reference_catalog()
+
+    # Template Resources (Phase 2)
+    elif uri == "tdwm://templates/throttle":
+        return await get_throttle_templates_list()
+    elif uri == "tdwm://templates/filter":
+        return await get_filter_templates_list()
+    elif uri == "tdwm://templates/catalog":
+        return await get_templates_catalog()
+
+    # Ruleset Exploration Resources (Phase 3)
+    elif uri == "tdwm://rulesets":
+        return await get_rulesets_list()
+    elif uri == "tdwm://system/active-ruleset":
+        return await get_active_ruleset_name()
+
+    # Workflow Resources (Phase 4)
+    elif uri == "tdwm://workflows":
+        return await get_workflows_list()
+
+    # Parameterized Resources (using regex matching)
+    # tdwm://reference/classification-types/{category}
+    elif match := re.match(r"tdwm://reference/classification-types/(.+)", uri):
+        category = match.group(1)
+        return await get_classification_types_by_category(category)
+    # tdwm://template/throttle/{template_id}
+    elif match := re.match(r"tdwm://template/throttle/(.+)", uri):
+        template_id = match.group(1)
+        return await get_throttle_template(template_id)
+    # tdwm://template/filter/{template_id}
+    elif match := re.match(r"tdwm://template/filter/(.+)", uri):
+        template_id = match.group(1)
+        return await get_filter_template(template_id)
+    # tdwm://ruleset/{ruleset_name}/throttle/{throttle_name}
+    elif match := re.match(r"tdwm://ruleset/([^/]+)/throttle/(.+)", uri):
+        ruleset_name = match.group(1)
+        throttle_name = match.group(2)
+        return await get_throttle_details(ruleset_name, throttle_name)
+    # tdwm://ruleset/{ruleset_name}/filter/{filter_name}
+    elif match := re.match(r"tdwm://ruleset/([^/]+)/filter/(.+)", uri):
+        ruleset_name = match.group(1)
+        filter_name = match.group(2)
+        return await get_filter_details(ruleset_name, filter_name)
+    # tdwm://ruleset/{ruleset_name}/throttles
+    elif match := re.match(r"tdwm://ruleset/([^/]+)/throttles$", uri):
+        ruleset_name = match.group(1)
+        return await get_ruleset_throttles(ruleset_name)
+    # tdwm://ruleset/{ruleset_name}/filters
+    elif match := re.match(r"tdwm://ruleset/([^/]+)/filters$", uri):
+        ruleset_name = match.group(1)
+        return await get_ruleset_filters(ruleset_name)
+    # tdwm://ruleset/{ruleset_name}/pending-changes
+    elif match := re.match(r"tdwm://ruleset/([^/]+)/pending-changes$", uri):
+        ruleset_name = match.group(1)
+        return await get_pending_changes(ruleset_name)
+    # tdwm://ruleset/{ruleset_name}
+    elif match := re.match(r"tdwm://ruleset/(.+)", uri):
+        ruleset_name = match.group(1)
+        return await get_ruleset_details(ruleset_name)
+    # tdwm://workflow/{workflow_id}
+    elif match := re.match(r"tdwm://workflow/(.+)", uri):
+        workflow_id = match.group(1)
+        return await get_workflow(workflow_id)
+
+    else:
+        raise ValueError(f"Unknown resource URI: {uri}")
 
 
 async def _query_resource(sql: str, context: str) -> str:

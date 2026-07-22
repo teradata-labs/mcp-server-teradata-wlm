@@ -17,6 +17,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "authlib>=1.6.0",
     "httpx>=0.28.0",
+    "prometheus-client>=0.21.0",
 ]
 
 [[project.authors]]

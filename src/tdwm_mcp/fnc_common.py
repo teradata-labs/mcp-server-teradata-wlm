@@ -21,6 +21,7 @@ from typing import Any, Callable, List, Optional
 import mcp.types as types
 from .connection_manager import TeradataConnectionManager
 from .queryband import build_queryband
+from . import metrics
 from .retry_utils import (
     with_connection_retry,
     is_connection_error,
@@ -38,15 +39,27 @@ _connection_manager = None
 _db = ""
 _transport = "stdio"
 _max_rows = 500
+_tool_timeout = 60.0
+_tool_timeout_write = 300.0
 
 
-def set_tools_connection(connection_manager, db: str, max_rows: int = None):
+def set_tools_connection(connection_manager, db: str, max_rows: int = None,
+                         tool_timeout: float = None, tool_timeout_write: float = None):
     """Set the global database connection manager and database name."""
-    global _connection_manager, _db, _max_rows
+    global _connection_manager, _db, _max_rows, _tool_timeout, _tool_timeout_write
     _connection_manager = connection_manager
     _db = db
     if max_rows is not None:
         _max_rows = max_rows
+    if tool_timeout is not None:
+        _tool_timeout = tool_timeout
+    if tool_timeout_write is not None:
+        _tool_timeout_write = tool_timeout_write
+
+
+def get_tool_timeouts() -> tuple[float, float]:
+    """Return (read_timeout, write_timeout) deadlines in seconds."""
+    return _tool_timeout, _tool_timeout_write
 
 
 def set_transport(transport: str):
@@ -134,6 +147,7 @@ async def run_db(tdconn, fn: Callable):
         return await asyncio.to_thread(fn)
     except asyncio.CancelledError:
         logger.info("Request cancelled — aborting in-flight Teradata request")
+        metrics.REQUEST_CANCELLATIONS.inc()
         try:
             if getattr(tdconn, "conn", None) is not None:
                 await asyncio.shield(asyncio.to_thread(tdconn.conn.cancel))

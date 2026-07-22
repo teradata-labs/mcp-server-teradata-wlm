@@ -76,15 +76,26 @@ async def initialize_database(settings: Settings):
             max_backoff=settings.max_backoff,
             pool_size=settings.pool_size,
             settings=settings,
-            acquire_timeout=settings.pool_acquire_timeout
+            acquire_timeout=settings.pool_acquire_timeout,
+            breaker_threshold=settings.breaker_threshold,
+            breaker_cooldown=settings.breaker_cooldown
         )
         # Register the connection manager with the tool modules now so they
         # can acquire connections from the pool on demand.
-        set_tools_connection(_connection_manager, _db, max_rows=settings.max_rows)
+        set_tools_connection(
+            _connection_manager, _db,
+            max_rows=settings.max_rows,
+            tool_timeout=settings.tool_timeout,
+            tool_timeout_write=settings.tool_timeout_write
+        )
 
-        # Warm the pool with one connection (may fail; tools will retry on demand)
-        await _connection_manager.warm()
-        logger.info(f"Connection pool initialized (pool_size={settings.pool_size})")
+        # Pre-warm the pool so no user request pays a Teradata login at
+        # ramp-up (may partially fail; tools retry on demand). Then keep
+        # idle sessions alive in the background.
+        warm_count = settings.pool_warm if settings.pool_warm >= 0 else settings.pool_size
+        await _connection_manager.warm(warm_count)
+        _connection_manager.start_keepalive()
+        logger.info(f"Connection pool initialized (pool_size={settings.pool_size}, warmed={warm_count})")
 
     except Exception as e:
         logger.warning(
@@ -138,6 +149,14 @@ app._mcp_server.list_resources()(handle_list_resources)
 app._mcp_server.read_resource()(handle_read_resource)
 app._mcp_server.list_prompts()(handle_list_prompts)
 app._mcp_server.get_prompt()(handle_get_prompt)
+
+
+@app.custom_route("/metrics", methods=["GET"])
+async def streamable_http_metrics(request: Request):
+    """Prometheus metrics endpoint for the streamable-http transport."""
+    from starlette.responses import Response
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.custom_route("/health", methods=["GET"])
@@ -203,10 +222,16 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False, cors_origin
         # stream has already been sent via the raw ASGI interface above.
         return Response()
 
+    async def metrics_endpoint(request: Request) -> Response:
+        """Prometheus metrics endpoint for the SSE transport."""
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
     # Create base routes for SSE
     routes = [
         Route("/sse", endpoint=handle_sse),
         Mount("/messages/", app=sse.handle_post_message),
+        Route("/metrics", endpoint=metrics_endpoint, methods=["GET"]),
     ]
 
     async def health_check(request: Request):
@@ -354,27 +379,40 @@ async def main():
     logger.info(f"MCP_TRANSPORT: {mcp_transport}")
 
     # Start the MCP server
-    if mcp_transport == "sse":
-        app.settings.host = _settings.mcp_host
-        app.settings.port = _settings.mcp_port
-        logger.info(f"Starting MCP server on {app.settings.host}:{app.settings.port}")
-        mcp_server = app._mcp_server
-        starlette_app = create_starlette_app(
-            mcp_server, debug=True, cors_origins=_settings.cors_allowed_origins
-        )
-        config = uvicorn.Config(starlette_app, host=app.settings.host, port=app.settings.port, log_level="info")
-        server = uvicorn.Server(config)
-        await server.serve()
+    try:
+        if mcp_transport == "sse":
+            app.settings.host = _settings.mcp_host
+            app.settings.port = _settings.mcp_port
+            logger.info(f"Starting MCP server on {app.settings.host}:{app.settings.port}")
+            mcp_server = app._mcp_server
+            starlette_app = create_starlette_app(
+                mcp_server, debug=True, cors_origins=_settings.cors_allowed_origins
+            )
+            config = uvicorn.Config(starlette_app, host=app.settings.host, port=app.settings.port, log_level="info")
+            server = uvicorn.Server(config)
+            await server.serve()
 
-    elif mcp_transport == "streamable-http":
-        app.settings.host = _settings.mcp_host
-        app.settings.port = _settings.mcp_port
-        app.settings.streamable_http_path = _settings.mcp_path
-        logger.info(f"Starting MCP server on {app.settings.host}:{app.settings.port} with path {app.settings.streamable_http_path}")
-        await app.run_streamable_http_async()
-    else:
-        logger.info("Starting MCP server on stdin/stdout")
-        await app.run_stdio_async()
+        elif mcp_transport == "streamable-http":
+            app.settings.host = _settings.mcp_host
+            app.settings.port = _settings.mcp_port
+            app.settings.streamable_http_path = _settings.mcp_path
+            # Stateless mode: no Mcp-Session-Id affinity, so N replicas can
+            # sit behind a plain round-robin load balancer.
+            app.settings.stateless_http = _settings.mcp_stateless_http
+            app.settings.json_response = _settings.mcp_json_response
+            logger.info(
+                f"Starting MCP server on {app.settings.host}:{app.settings.port} "
+                f"with path {app.settings.streamable_http_path} "
+                f"(stateless={_settings.mcp_stateless_http})"
+            )
+            await app.run_streamable_http_async()
+        else:
+            logger.info("Starting MCP server on stdin/stdout")
+            await app.run_stdio_async()
+    finally:
+        # Graceful drain: stop keepalive and log off pooled sessions
+        if _connection_manager:
+            await _connection_manager.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

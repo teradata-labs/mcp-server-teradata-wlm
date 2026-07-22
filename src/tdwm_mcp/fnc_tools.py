@@ -5,12 +5,16 @@ This module contains all the tool functions that are exposed through the MCP ser
 Each function implements a specific TDWM operation and returns properly formatted responses.
 """
 
+import asyncio
 import logging
+import time
 from typing import Any, List
 
 import mcp.types as types
 from .tdwm_static import TDWM_CLASIFICATION_TYPE
 from .oauth_context import require_oauth_authorization, get_oauth_error
+from . import metrics
+from .retry_utils import categorize_operation
 
 # Import shared utilities from common module
 from .fnc_common import (
@@ -23,7 +27,8 @@ from .fnc_common import (
     ResponseType,
     set_tools_connection,
     set_transport,
-    with_connection_retry
+    with_connection_retry,
+    get_tool_timeouts
 )
 
 # Import Priority 1 Configuration Management tools
@@ -1441,8 +1446,13 @@ async def handle_tool_call(
     name: str, arguments: dict | None
 ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
     """
-    Handle tool execution requests with OAuth authorization.
-    Tools can modify server state and notify clients of changes.
+    Handle tool execution requests with OAuth authorization, a per-request
+    deadline, and metrics.
+
+    Read/monitor tools get the TOOL_TIMEOUT deadline; config-change tools get
+    the longer TOOL_TIMEOUT_WRITE. When a deadline expires, the in-flight
+    Teradata request is aborted (run_db cancel path) and the connection is
+    discarded, so timeouts reclaim resources instead of orphaning queries.
     """
     logger.info(f"Calling tool: {name}::{arguments}")
 
@@ -1450,165 +1460,194 @@ async def handle_tool_call(
     if not require_oauth_authorization(name):
         error_msg = get_oauth_error(name)
         logger.warning(f"OAuth authorization failed for tool {name}: {error_msg}")
+        metrics.TOOL_CALLS.labels(tool=name, outcome="denied").inc()
         return [types.TextContent(type="text", text=f"Authorization Error: {error_msg}")]
 
+    read_timeout, write_timeout = get_tool_timeouts()
+    deadline = read_timeout if categorize_operation(name) == "read" else write_timeout
+    start = time.monotonic()
+    outcome = "success"
     try:
-        if name == "show_sessions":
-            return await list_sessions(username=arguments.get("username"))
-        elif name == "show_physical_resources":
-            return await list_resources()
-        elif name == "monitor_amp_load":
-            return await monitor_amp_load()
-        elif name == "monitor_awt":
-            return await monitor_awt()
-        elif name == "monitor_config":
-            return await monitor_config()
-        elif name == "show_sql_steps_for_session":
-            return await show_session_sql_steps(arguments["sessionNo"])
-        elif name == "show_sql_text_for_session":
-            return await show_session_sql_text(arguments["sessionNo"])
-        elif name == "identify_blocking":
-            return await identify_blocking()
-        elif name == "abort_sessions_user":
-            return await abort_sessions_user(arguments["user"])
-        elif name == "abort_session":
-            return await abort_session(arguments["session_id"])
-        elif name == "list_active_WD":
-            return await list_active_WD()
-        elif name == "list_WD":
-            return await list_WDs()
-        elif name == "list_delayed_request":
-            return await list_delayed_request(queue_type=arguments.get("type", "A"))
-        elif name == "abort_delayed_request":
-            return await abort_delayed_request(arguments["sessionNo"])
-        elif name == "list_utility_stats":
-            return await list_utility_stats()
-        elif name == "display_delay_queue":
-            return await display_delay_queue(arguments["type"])
-        elif name == "release_delay_queue":
-            return await release_delay_queue(
-                arguments.get("sessionNo"),
-                arguments.get("userName")
-            )
-        elif name == "show_tdwm_summary":
-            return await show_tdwm_summary()
-        elif name == "show_trottle_statistics":
-            return await show_trottle_statistics(arguments.get("type", "ALL"))
-        elif name == "list_query_band":
-            return await list_query_band(arguments.get("type", "ALL"))
-        elif name == "monitor_session_query_band":
-            return await monitor_session_query_band(arguments["sessionNo"])
-        elif name == "show_query_log":
-            return await show_query_log(
-                arguments["user"],
-                hours=arguments.get("hours", 24),
-                top_n=arguments.get("top_n", 100)
-            )
-        elif name == "show_cod_limits":
-            return await show_cod_limits()
-        elif name == "tdwm_list_clasification":
-            return await tdwm_list_clasification()
-        elif name == "show_top_users":
-            return await show_top_users(top_n=arguments.get("top_n", 20))
-        elif name == "show_sw_event_log":
-            return await show_sw_event_log(arguments.get("Type", "ALL"))
-        elif name == "show_tasm_statistics":
-            return await show_tasm_statistics()
-        elif name == "show_tasm_even_history":
-            return await show_tasm_even_history(hours=arguments.get("hours", 24))
-        elif name == "show_tasm_rule_history_red":
-            return await show_tasm_rule_history_red()
-        # ========== Priority 1 Configuration Management Dispatch ==========
-        elif name == "create_system_throttle":
-            return await create_system_throttle(
-                arguments["ruleset_name"],
-                arguments["throttle_name"],
-                arguments["description"],
-                arguments.get("throttle_type", "DM"),
-                arguments["limit"],
-                arguments.get("classification_criteria")
-            )
-        elif name == "modify_throttle_limit":
-            return await modify_throttle_limit(
-                arguments["ruleset_name"],
-                arguments["throttle_name"],
-                arguments["new_limit"]
-            )
-        elif name == "delete_throttle":
-            return await delete_throttle(
-                arguments["ruleset_name"],
-                arguments["throttle_name"]
-            )
-        elif name == "enable_throttle":
-            return await enable_throttle(
-                arguments["ruleset_name"],
-                arguments["throttle_name"]
-            )
-        elif name == "disable_throttle":
-            return await disable_throttle(
-                arguments["ruleset_name"],
-                arguments["throttle_name"]
-            )
-        elif name == "create_filter":
-            return await create_filter(
-                arguments["ruleset_name"],
-                arguments["filter_name"],
-                arguments["description"],
-                arguments.get("classification_criteria"),
-                arguments.get("action", "E")
-            )
-        elif name == "delete_filter":
-            return await delete_filter(
-                arguments["ruleset_name"],
-                arguments["filter_name"]
-            )
-        elif name == "enable_filter":
-            return await enable_filter(
-                arguments["ruleset_name"],
-                arguments["filter_name"]
-            )
-        elif name == "disable_filter":
-            return await disable_filter(
-                arguments["ruleset_name"],
-                arguments["filter_name"]
-            )
-        elif name == "add_classification_to_rule":
-            return await add_classification_to_rule(
-                arguments["ruleset_name"],
-                arguments["rule_name"],
-                arguments["description"],
-                arguments["classification_type"],
-                arguments["classification_value"],
-                arguments.get("operator", "I")
-            )
-        elif name == "add_subcriteria_to_target":
-            return await add_subcriteria_to_target(
-                arguments["ruleset_name"],
-                arguments["rule_name"],
-                arguments["target_type"],
-                arguments["target_value"],
-                arguments["description"],
-                arguments["subcriteria_type"],
-                arguments.get("subcriteria_value"),
-                arguments.get("operator", "I")
-            )
-        elif name == "activate_ruleset":
-            return await activate_ruleset(
-                arguments["ruleset_name"]
-            )
-        elif name == "list_rulesets":
-            return await list_rulesets()
-        return [types.TextContent(type="text", text=f"Unsupported tool: {name}")]
+        async with asyncio.timeout(deadline):
+            result = await _dispatch_tool(name, arguments)
+        if result is None:
+            outcome = "unsupported"
+            return [types.TextContent(type="text", text=f"Unsupported tool: {name}")]
+        return result
 
-    except ConnectionError as e:
-        logger.error(f"Connection error executing tool {name}: {e}")
+    except TimeoutError:
+        outcome = "timeout"
+        logger.error(f"Tool {name} exceeded its {deadline:g}s deadline")
         return [types.TextContent(
             type="text",
-            text="Database connection error. Please check your database connection and try again."
+            text=(f"Tool '{name}' timed out after {deadline:g}s. "
+                  "The in-flight database request was aborted.")
         )]
+    except ConnectionError as e:
+        outcome = "connection_error"
+        logger.error(f"Connection error executing tool {name}: {e}")
+        # Manager errors are structured and credential-free (busy vs breaker
+        # vs down), so surface them — the client can act on the difference.
+        return [types.TextContent(type="text", text=f"Database connection error: {e}")]
     except Exception as e:
+        outcome = "error"
         logger.error(f"Error executing tool {name}: {e}")
         return [types.TextContent(
             type="text",
             text=f"Error executing tool {name}. An internal error occurred. Check server logs for details."
         )]
+    finally:
+        metrics.TOOL_CALLS.labels(tool=name, outcome=outcome).inc()
+        metrics.TOOL_LATENCY.labels(tool=name).observe(time.monotonic() - start)
+
+
+async def _dispatch_tool(
+    name: str, arguments: dict | None
+) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource] | None:
+    """Route a tool call to its implementation. Returns None if unknown."""
+    if name == "show_sessions":
+        return await list_sessions(username=arguments.get("username"))
+    elif name == "show_physical_resources":
+        return await list_resources()
+    elif name == "monitor_amp_load":
+        return await monitor_amp_load()
+    elif name == "monitor_awt":
+        return await monitor_awt()
+    elif name == "monitor_config":
+        return await monitor_config()
+    elif name == "show_sql_steps_for_session":
+        return await show_session_sql_steps(arguments["sessionNo"])
+    elif name == "show_sql_text_for_session":
+        return await show_session_sql_text(arguments["sessionNo"])
+    elif name == "identify_blocking":
+        return await identify_blocking()
+    elif name == "abort_sessions_user":
+        return await abort_sessions_user(arguments["user"])
+    elif name == "abort_session":
+        return await abort_session(arguments["session_id"])
+    elif name == "list_active_WD":
+        return await list_active_WD()
+    elif name == "list_WD":
+        return await list_WDs()
+    elif name == "list_delayed_request":
+        return await list_delayed_request(queue_type=arguments.get("type", "A"))
+    elif name == "abort_delayed_request":
+        return await abort_delayed_request(arguments["sessionNo"])
+    elif name == "list_utility_stats":
+        return await list_utility_stats()
+    elif name == "display_delay_queue":
+        return await display_delay_queue(arguments["type"])
+    elif name == "release_delay_queue":
+        return await release_delay_queue(
+            arguments.get("sessionNo"),
+            arguments.get("userName")
+        )
+    elif name == "show_tdwm_summary":
+        return await show_tdwm_summary()
+    elif name == "show_trottle_statistics":
+        return await show_trottle_statistics(arguments.get("type", "ALL"))
+    elif name == "list_query_band":
+        return await list_query_band(arguments.get("type", "ALL"))
+    elif name == "monitor_session_query_band":
+        return await monitor_session_query_band(arguments["sessionNo"])
+    elif name == "show_query_log":
+        return await show_query_log(
+            arguments["user"],
+            hours=arguments.get("hours", 24),
+            top_n=arguments.get("top_n", 100)
+        )
+    elif name == "show_cod_limits":
+        return await show_cod_limits()
+    elif name == "tdwm_list_clasification":
+        return await tdwm_list_clasification()
+    elif name == "show_top_users":
+        return await show_top_users(top_n=arguments.get("top_n", 20))
+    elif name == "show_sw_event_log":
+        return await show_sw_event_log(arguments.get("Type", "ALL"))
+    elif name == "show_tasm_statistics":
+        return await show_tasm_statistics()
+    elif name == "show_tasm_even_history":
+        return await show_tasm_even_history(hours=arguments.get("hours", 24))
+    elif name == "show_tasm_rule_history_red":
+        return await show_tasm_rule_history_red()
+    # ========== Priority 1 Configuration Management Dispatch ==========
+    elif name == "create_system_throttle":
+        return await create_system_throttle(
+            arguments["ruleset_name"],
+            arguments["throttle_name"],
+            arguments["description"],
+            arguments.get("throttle_type", "DM"),
+            arguments["limit"],
+            arguments.get("classification_criteria")
+        )
+    elif name == "modify_throttle_limit":
+        return await modify_throttle_limit(
+            arguments["ruleset_name"],
+            arguments["throttle_name"],
+            arguments["new_limit"]
+        )
+    elif name == "delete_throttle":
+        return await delete_throttle(
+            arguments["ruleset_name"],
+            arguments["throttle_name"]
+        )
+    elif name == "enable_throttle":
+        return await enable_throttle(
+            arguments["ruleset_name"],
+            arguments["throttle_name"]
+        )
+    elif name == "disable_throttle":
+        return await disable_throttle(
+            arguments["ruleset_name"],
+            arguments["throttle_name"]
+        )
+    elif name == "create_filter":
+        return await create_filter(
+            arguments["ruleset_name"],
+            arguments["filter_name"],
+            arguments["description"],
+            arguments.get("classification_criteria"),
+            arguments.get("action", "E")
+        )
+    elif name == "delete_filter":
+        return await delete_filter(
+            arguments["ruleset_name"],
+            arguments["filter_name"]
+        )
+    elif name == "enable_filter":
+        return await enable_filter(
+            arguments["ruleset_name"],
+            arguments["filter_name"]
+        )
+    elif name == "disable_filter":
+        return await disable_filter(
+            arguments["ruleset_name"],
+            arguments["filter_name"]
+        )
+    elif name == "add_classification_to_rule":
+        return await add_classification_to_rule(
+            arguments["ruleset_name"],
+            arguments["rule_name"],
+            arguments["description"],
+            arguments["classification_type"],
+            arguments["classification_value"],
+            arguments.get("operator", "I")
+        )
+    elif name == "add_subcriteria_to_target":
+        return await add_subcriteria_to_target(
+            arguments["ruleset_name"],
+            arguments["rule_name"],
+            arguments["target_type"],
+            arguments["target_value"],
+            arguments["description"],
+            arguments["subcriteria_type"],
+            arguments.get("subcriteria_value"),
+            arguments.get("operator", "I")
+        )
+    elif name == "activate_ruleset":
+        return await activate_ruleset(
+            arguments["ruleset_name"]
+        )
+    elif name == "list_rulesets":
+        return await list_rulesets()
+    return None

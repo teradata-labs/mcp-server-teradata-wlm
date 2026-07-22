@@ -130,7 +130,7 @@ def categorize_operation(func_name: str) -> str:
     read_keywords = [
         "show", "get", "list", "query", "search", "find", "check",
         "view", "display", "fetch", "read", "select", "describe",
-        "explain", "analyze", "count", "exists"
+        "explain", "analyze", "count", "exists", "monitor", "identify"
     ]
     for keyword in read_keywords:
         if keyword in func_lower:

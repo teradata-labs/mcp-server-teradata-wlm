@@ -9,10 +9,11 @@ These tools implement Priority 1 capabilities from the enhancement recommendatio
 - Filter Management (create, modify, delete, enable/disable)
 - Rule Management (add criteria, set limits, activate)
 
-Note: these tools intentionally use plain asyncio.to_thread rather than the
-cancellation-aware run_db helper — aborting a configuration change mid-flight
-on client disconnect would make partial state MORE likely, so writes are
-allowed to run to completion.
+Note: these tools run through run_db, so a deadline expiry or client
+disconnect aborts the in-flight statement via the driver's thread-safe
+cancel(). Multi-step tools track progress and report exactly which steps
+were applied if the sequence stops early (the TDWM procedures commit
+individually — there is no rollback across them).
 """
 
 import asyncio
@@ -20,7 +21,7 @@ import logging
 from typing import Any, List, Optional, Dict
 
 import mcp.types as types
-from .fnc_common import format_text_response, format_error_response, acquire_connection, _set_queryband, ResponseType, with_connection_retry
+from .fnc_common import format_text_response, format_error_response, acquire_connection, run_db, _set_queryband, ResponseType, with_connection_retry
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ async def create_system_throttle(
                 f"Successfully created and activated system throttle '{throttle_name}' with limit {limit}"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -164,7 +165,7 @@ async def modify_throttle_limit(
                 f"Successfully updated throttle '{throttle_name}' limit to {new_limit}"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -205,7 +206,7 @@ async def delete_throttle(
                 f"Successfully deleted throttle '{throttle_name}'"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -240,7 +241,7 @@ async def enable_throttle(
                 f"Successfully enabled throttle '{throttle_name}'"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -275,7 +276,7 @@ async def disable_throttle(
                 f"Successfully disabled throttle '{throttle_name}'"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -366,7 +367,7 @@ async def create_filter(
                 f"Successfully created and activated filter '{filter_name}'"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -410,7 +411,7 @@ async def delete_filter(
                 f"Successfully deleted filter '{filter_name}'"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -445,7 +446,7 @@ async def enable_filter(
                 f"Successfully enabled filter '{filter_name}'"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -480,7 +481,7 @@ async def disable_filter(
                 f"Successfully disabled filter '{filter_name}'"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -532,7 +533,7 @@ async def add_classification_to_rule(
                 f"Successfully added classification {classification_type}={classification_value} to rule '{rule_name}'"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -586,7 +587,7 @@ async def add_subcriteria_to_target(
                 f"Successfully added sub-criteria {subcriteria_type} to {target_type}={target_value} in rule '{rule_name}'"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -615,7 +616,7 @@ async def activate_ruleset(
                 f"Successfully activated ruleset '{ruleset_name}'"
             )
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
@@ -635,7 +636,7 @@ async def list_rulesets() -> ResponseType:
             rows = cur.execute("""SELECT * FROM TDWM.Configurations""")
             return format_text_response(list(rows.fetchall()))
         try:
-            return await asyncio.to_thread(_run)
+            return await run_db(tdconn, _run)
         except ConnectionError:
             raise
         except Exception as e:
