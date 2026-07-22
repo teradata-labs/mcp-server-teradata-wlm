@@ -20,6 +20,10 @@ class Settings:
 
     # Connection pool
     pool_size: int = 3
+    pool_acquire_timeout: float = 5.0
+
+    # Result limits
+    max_rows: int = 500
 
     # Connection resilience
     max_retries: int = 3
@@ -41,6 +45,8 @@ def settings_from_env() -> Settings:
     return Settings(
         database_uri=os.getenv("DATABASE_URI") or None,
         pool_size=int(os.getenv("DB_POOL_SIZE", "3")),
+        pool_acquire_timeout=float(os.getenv("POOL_ACQUIRE_TIMEOUT", "5.0")),
+        max_rows=int(os.getenv("MAX_ROWS", "500")),
         logmech=os.getenv("DB_LOGMECH", "TD2"),
         logdata=os.getenv("DB_LOGDATA", ""),
         ssl_mode=os.getenv("DB_SSL_MODE", ""),

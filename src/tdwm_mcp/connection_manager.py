@@ -40,7 +40,8 @@ class TeradataConnectionManager:
         initial_backoff: float = 1.0,
         max_backoff: float = 30.0,
         pool_size: int = 3,
-        settings: Optional[Settings] = None
+        settings: Optional[Settings] = None,
+        acquire_timeout: float = 5.0
     ):
         self.database_url = database_url
         self.db_name = db_name
@@ -49,6 +50,7 @@ class TeradataConnectionManager:
         self.max_backoff = max_backoff
         self._pool_size = pool_size
         self._settings = settings
+        self._acquire_timeout = acquire_timeout
 
         self._pool: asyncio.Queue[TDConn] = asyncio.Queue(maxsize=pool_size)
         self._semaphore = asyncio.Semaphore(pool_size)
@@ -64,23 +66,27 @@ class TeradataConnectionManager:
         avoid returning tainted state.
 
         Raises:
-            asyncio.TimeoutError: If no connection available within 30 seconds
-            ConnectionError: If unable to create a connection after retries
+            ConnectionError: If no connection is available within the acquire
+                timeout (fail-fast admission control), or if unable to create
+                a connection after retries.
         """
         try:
-            await asyncio.wait_for(self._semaphore.acquire(), timeout=30.0)
+            await asyncio.wait_for(self._semaphore.acquire(), timeout=self._acquire_timeout)
         except asyncio.TimeoutError:
             raise ConnectionError(
-                f"Connection pool exhausted (pool_size={self._pool_size}). "
-                "All connections are in use. Try again later or increase DB_POOL_SIZE."
+                f"Server busy: all {self._pool_size} database connections are in use "
+                f"(waited {self._acquire_timeout:.0f}s). "
+                "Retry shortly or increase DB_POOL_SIZE."
             )
         try:
             conn = await self._checkout()
             try:
                 yield conn
-            except Exception:
-                # On error, discard connection (may be tainted)
-                await self._close_connection(conn)
+            except BaseException:
+                # On error or cancellation, discard connection (may be tainted
+                # or have an aborted request in flight). Shielded so the close
+                # completes even while the request itself is being cancelled.
+                await asyncio.shield(self._close_connection(conn))
                 raise
             else:
                 # Success — return healthy connection to pool
@@ -133,38 +139,47 @@ class TeradataConnectionManager:
         raise ConnectionError(error_msg)
 
     async def _create_connection(self) -> TDConn:
-        """Create a single new database connection."""
+        """Create a single new database connection.
+
+        The Teradata login and session QueryBand are blocking network
+        operations, so they run in a worker thread to keep the event loop
+        responsive for other users.
+        """
         logger.info(f"Creating new connection to {obfuscate_password(self.database_url)}")
 
-        connection = TDConn(self.database_url, settings=self._settings)
-        query_band_string = build_queryband(application="TDWM_MCP")
+        def _connect() -> TDConn:
+            connection = TDConn(self.database_url, settings=self._settings)
+            query_band_string = build_queryband(application="TDWM_MCP")
+            try:
+                cur = connection.cursor()
+                cur.execute(f"SET QUERY_BAND = '{query_band_string}' UPDATE FOR SESSION;")
+                cur.close()
+            except Exception as e:
+                logger.warning(f"Failed to set session QueryBand: {obfuscate_password(str(e))}")
+            return connection
 
-        try:
-            cur = connection.cursor()
-            cur.execute(f"SET QUERY_BAND = '{query_band_string}' UPDATE FOR SESSION;")
-            cur.close()
-        except Exception as e:
-            logger.warning(f"Failed to set session QueryBand: {obfuscate_password(str(e))}")
-
-        return connection
+        return await asyncio.to_thread(_connect)
 
     async def _is_healthy(self, connection: TDConn) -> bool:
-        """Check if the connection is healthy via SELECT 1."""
-        try:
+        """Check if the connection is healthy via SELECT 1 (in a worker thread)."""
+        def _ping() -> bool:
             cur = connection.cursor()
             cur.execute("SELECT 1")
             cur.fetchone()
             cur.close()
             return True
+
+        try:
+            return await asyncio.to_thread(_ping)
         except Exception as e:
             logger.warning(f"Health check failed: {obfuscate_password(str(e))}")
             return False
 
     async def _close_connection(self, connection: TDConn):
-        """Close a database connection safely."""
+        """Close a database connection safely (in a worker thread)."""
         try:
             if connection:
-                connection.close()
+                await asyncio.to_thread(connection.close)
                 logger.debug("Connection closed")
         except Exception as e:
             logger.warning(f"Error closing connection: {e}")

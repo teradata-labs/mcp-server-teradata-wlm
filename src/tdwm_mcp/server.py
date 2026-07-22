@@ -75,11 +75,12 @@ async def initialize_database(settings: Settings):
             initial_backoff=settings.initial_backoff,
             max_backoff=settings.max_backoff,
             pool_size=settings.pool_size,
-            settings=settings
+            settings=settings,
+            acquire_timeout=settings.pool_acquire_timeout
         )
         # Register the connection manager with the tool modules now so they
         # can acquire connections from the pool on demand.
-        set_tools_connection(_connection_manager, _db)
+        set_tools_connection(_connection_manager, _db, max_rows=settings.max_rows)
 
         # Warm the pool with one connection (may fail; tools will retry on demand)
         await _connection_manager.warm()
@@ -130,11 +131,38 @@ app = FastMCP("tdwm-mcp")
 
 # Set up the handlers using the internal MCP server for dynamic resources and tools
 app._mcp_server.list_tools()(handle_list_tools)
-app._mcp_server.call_tool(validate_input=False)(handle_tool_call)
+# validate_input=True rejects malformed arguments against each tool's
+# inputSchema with a clear error instead of surfacing a KeyError.
+app._mcp_server.call_tool(validate_input=True)(handle_tool_call)
 app._mcp_server.list_resources()(handle_list_resources)
 app._mcp_server.read_resource()(handle_read_resource)
 app._mcp_server.list_prompts()(handle_list_prompts)
 app._mcp_server.get_prompt()(handle_get_prompt)
+
+
+@app.custom_route("/health", methods=["GET"])
+async def streamable_http_health(request: Request):
+    """Health check endpoint for the streamable-http transport.
+
+    (The SSE transport registers its own /health in create_starlette_app.)
+    """
+    from starlette.responses import JSONResponse
+    try:
+        pool_info = _connection_manager.get_connection_info() if _connection_manager else None
+        return JSONResponse(content={
+            "status": "healthy",
+            "transport": "streamable-http",
+            "oauth": {
+                "enabled": _oauth_config.enabled if _oauth_config else False,
+            },
+            "database": {
+                "status": "connected" if _connection_manager else "disconnected",
+                "pool": pool_info,
+            }
+        })
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return JSONResponse(status_code=503, content={"status": "unhealthy", "error": str(e)})
 
 def setup_oauth_endpoints():
     """Setup OAuth endpoints for FastMCP app."""

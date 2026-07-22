@@ -13,7 +13,7 @@ import re
 from urllib.parse import urlparse
 from .connection_manager import TeradataConnectionManager
 from .retry_utils import with_connection_retry
-from .fnc_common import acquire_connection
+from .fnc_common import acquire_connection, run_db, rows_to_json
 
 # Import reference data resource handlers
 from .resource_reference import (
@@ -383,116 +383,78 @@ async def handle_read_resource(uri: str) -> str:
         return format_error_response(str(e))
 
 
+async def _query_resource(sql: str, context: str) -> str:
+    """Run a resource query in a worker thread; return bounded JSON.
+
+    Keeps the event loop responsive (the query and fetch are blocking driver
+    calls) and bounds the result via rows_to_json.
+    """
+    try:
+        async with acquire_connection() as tdconn:
+            def _run():
+                cur = tdconn.cursor()
+                cur.execute(sql)
+                return rows_to_json(cur)
+            return await run_db(tdconn, _run)
+    except Exception as e:
+        logger.error(f"Error getting {context}: {e}")
+        return format_error_response(str(e))
+
+
 @with_connection_retry()
 async def _get_sessions_resource() -> str:
     """Get current sessions resource."""
-    try:
-        async with acquire_connection() as tdconn:
-            cur = tdconn.cursor()
-            rows = cur.execute("SELECT * FROM TABLE (monitormysessions()) as t1")
-            result = list([row for row in rows.fetchall()])
-            return format_text_response(result)
-    except Exception as e:
-        logger.error(f"Error getting sessions resource: {e}")
-        return format_error_response(str(e))
+    return await _query_resource(
+        "SELECT * FROM TABLE (monitormysessions()) as t1", "sessions resource")
 
 
 @with_connection_retry()
 async def _get_workloads_resource() -> str:
     """Get workloads resource."""
-    try:
-        async with acquire_connection() as tdconn:
-            cur = tdconn.cursor()
-            rows = cur.execute("SELECT * FROM TABLE (TDWM.TDWMListWDs('Y')) AS t1")
-            result = list([row for row in rows.fetchall()])
-            return format_text_response(result)
-    except Exception as e:
-        logger.error(f"Error getting workloads resource: {e}")
-        return format_error_response(str(e))
+    return await _query_resource(
+        "SELECT * FROM TABLE (TDWM.TDWMListWDs('Y')) AS t1", "workloads resource")
 
 
 @with_connection_retry()
 async def _get_active_workloads_resource() -> str:
-    """Get active workloads resource.""" 
-    try:
-        async with acquire_connection() as tdconn:
-            cur = tdconn.cursor()
-            rows = cur.execute("sel * from table (tdwm.TDWMActiveWDs()) as t1")
-            result = list([row for row in rows.fetchall()])
-            return format_text_response(result)
-    except Exception as e:
-        logger.error(f"Error getting active workloads resource: {e}")
-        return format_error_response(str(e))
+    """Get active workloads resource."""
+    return await _query_resource(
+        "sel * from table (tdwm.TDWMActiveWDs()) as t1", "active workloads resource")
 
 
 @with_connection_retry()
 async def _get_summary_resource() -> str:
     """Get TDWM summary resource."""
-    try:
-        async with acquire_connection() as tdconn:
-            cur = tdconn.cursor()
-            rows = cur.execute("SELECT * FROM TABLE (TDWM.TDWMSummary()) AS t2")
-            result = list([row for row in rows.fetchall()])
-            return format_text_response(result)
-    except Exception as e:
-        logger.error(f"Error getting summary resource: {e}")
-        return format_error_response(str(e))
+    return await _query_resource(
+        "SELECT * FROM TABLE (TDWM.TDWMSummary()) AS t2", "summary resource")
 
 
 @with_connection_retry()
 async def _get_delayed_queries_resource() -> str:
     """Get delayed queries resource."""
-    try:
-        async with acquire_connection() as tdconn:
-            cur = tdconn.cursor()
-            rows = cur.execute("SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1")
-            result = list([row for row in rows.fetchall()])
-            return format_text_response(result)
-    except Exception as e:
-        logger.error(f"Error getting delayed queries resource: {e}")
-        return format_error_response(str(e))
+    return await _query_resource(
+        "SELECT * FROM TABLE (TDWM.TDWMGetDelayedQueries('O')) AS t1", "delayed queries resource")
 
 
 @with_connection_retry()
 async def _get_throttle_statistics_resource() -> str:
     """Get throttle statistics resource."""
-    try:
-        async with acquire_connection() as tdconn:
-            cur = tdconn.cursor()
-            rows = cur.execute("SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('A')) AS t1")
-            result = list([row for row in rows.fetchall()])
-            return format_text_response(result)
-    except Exception as e:
-        logger.error(f"Error getting throttle statistics resource: {e}")
-        return format_error_response(str(e))
+    return await _query_resource(
+        "SELECT * FROM TABLE (TDWM.TDWMTHROTTLESTATISTICS('A')) AS t1", "throttle statistics resource")
 
 
 @with_connection_retry()
 async def _get_physical_resources_resource() -> str:
     """Get physical resources resource."""
-    try:
-        async with acquire_connection() as tdconn:
-            cur = tdconn.cursor()
-            rows = cur.execute("SELECT t2.* from table (MonitorPhysicalResource()) as t2")
-            result = list([row for row in rows.fetchall()])
-            return format_text_response(result)
-    except Exception as e:
-        logger.error(f"Error getting physical resources resource: {e}")
-        return format_error_response(str(e))
+    return await _query_resource(
+        "SELECT t2.* from table (MonitorPhysicalResource()) as t2", "physical resources resource")
 
 
 @with_connection_retry()
 async def _get_amp_load_resource() -> str:
     """Get AMP load resource."""
-    try:
-        async with acquire_connection() as tdconn:
-            cur = tdconn.cursor()
-            rows = cur.execute("SELECT * FROM TABLE (MonitorAMPLoad()) AS t1")
-            result = list([row for row in rows.fetchall()])
-            return format_text_response(result)
-    except Exception as e:
-        logger.error(f"Error getting AMP load resource: {e}")
-        return format_error_response(str(e))
+    return await _query_resource(
+        "SELECT * FROM TABLE (MonitorAMPLoad()) AS t1", "AMP load resource")
 
 
 @with_connection_retry()

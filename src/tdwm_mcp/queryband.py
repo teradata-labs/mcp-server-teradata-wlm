@@ -20,6 +20,7 @@ def build_queryband(
     application: str = "TDWM_MCP",
     tool_name: str | None = None,
     transport: str | None = None,
+    user: str | None = None,
 ) -> str:
     """Build a QueryBand string for a tool execution.
 
@@ -27,6 +28,9 @@ def build_queryband(
         application: Application name.
         tool_name: Name of the MCP tool being executed.
         transport: Transport type (stdio, sse, streamable-http).
+        user: End-user identity (e.g., from OAuth claims) for DBQL/TASM
+            attribution. Uses a custom MCPUser key rather than PROXYUSER so
+            no CONNECT THROUGH grant is required.
 
     Returns:
         QueryBand string ready for SET QUERY_BAND SQL.
@@ -41,5 +45,6 @@ def build_queryband(
     add("ApplicationName", application)
     add("ToolName", tool_name)
     add("Transport", transport)
+    add("MCPUser", user)
 
     return "".join(parts)

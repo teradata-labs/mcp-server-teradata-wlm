@@ -8,6 +8,11 @@ These tools implement Priority 1 capabilities from the enhancement recommendatio
 - Throttle Management (create, modify, delete, enable/disable)
 - Filter Management (create, modify, delete, enable/disable)
 - Rule Management (add criteria, set limits, activate)
+
+Note: these tools intentionally use plain asyncio.to_thread rather than the
+cancellation-aware run_db helper — aborting a configuration change mid-flight
+on client disconnect would make partial state MORE likely, so writes are
+allowed to run to completion.
 """
 
 import asyncio
@@ -42,6 +47,10 @@ async def create_system_throttle(
         classification_criteria: Optional list of classification criteria
             [{"description": "...", "type": "APPL", "value": "MyApp", "operator": "I"}]
     """
+    # Track completed steps so a mid-sequence failure reports exactly what
+    # was applied (the TDWM procedures commit individually — there is no
+    # rollback across them).
+    progress: List[str] = []
     async with acquire_connection() as tdconn:
         def _run():
             _set_queryband(tdconn, "create_system_throttle")
@@ -53,6 +62,7 @@ async def create_system_throttle(
                 """CALL TDWM.TDWMCreateSystemThrottle(?, ?, ?, ?, ?)""",
                 [ruleset_name, throttle_name, description, throttle_type, 'N']
             )
+            progress.append(f"created throttle '{throttle_name}'")
 
             # 2. Add classification criteria if provided
             if classification_criteria:
@@ -70,6 +80,7 @@ async def create_system_throttle(
                             'N'
                         ]
                     )
+                    progress.append(f"added classification {criteria['type']}={criteria['value']}")
 
             # 3. Set default limit (action 'D' = delay)
             logger.info(f"Setting throttle limit to {limit}")
@@ -77,6 +88,7 @@ async def create_system_throttle(
                 """CALL TDWM.TDWMAddLimitForRuleState(?, ?, ?, ?, ?, ?, ?)""",
                 [ruleset_name, throttle_name, 'DEFAULT', 'Default limit', str(limit), 'D', 'N']
             )
+            progress.append(f"set DEFAULT limit to {limit}")
 
             # 4. Enable the throttle
             logger.info(f"Enabling throttle {throttle_name}")
@@ -84,6 +96,7 @@ async def create_system_throttle(
                 """CALL TDWM.TDWMManageRule(?, ?, ?)""",
                 [ruleset_name, throttle_name, 'E']
             )
+            progress.append("enabled the throttle")
 
             # 5. Activate ruleset to make changes live
             logger.info(f"Activating ruleset {ruleset_name}")
@@ -91,6 +104,7 @@ async def create_system_throttle(
                 """CALL TDWM.TDWMActivateRuleset(?)""",
                 [ruleset_name]
             )
+            progress.append(f"activated ruleset '{ruleset_name}'")
 
             return format_text_response(
                 f"Successfully created and activated system throttle '{throttle_name}' with limit {limit}"
@@ -101,6 +115,15 @@ async def create_system_throttle(
             raise
         except Exception as e:
             logger.error(f"Error creating system throttle: {e}")
+            if progress:
+                return format_error_response(
+                    "Failed to create system throttle after partial progress. "
+                    f"Completed steps: {'; '.join(progress)}. "
+                    f"Failed step {len(progress) + 1} of 5. "
+                    f"The ruleset '{ruleset_name}' may contain a partially configured "
+                    f"throttle '{throttle_name}' — inspect it, then delete it or complete "
+                    "the remaining steps and call activate_ruleset."
+                )
             return format_error_response("Failed to create system throttle. Check server logs for details.")
 
 
@@ -280,6 +303,10 @@ async def create_filter(
         classification_criteria: List of classification criteria
         action: 'E'=Exception (reject), 'A'=Abort
     """
+    # Track completed steps so a mid-sequence failure reports exactly what
+    # was applied (the TDWM procedures commit individually — there is no
+    # rollback across them).
+    progress: List[str] = []
     async with acquire_connection() as tdconn:
         def _run():
             _set_queryband(tdconn, "create_filter")
@@ -291,6 +318,7 @@ async def create_filter(
                 """CALL TDWM.TDWMCreateFilter(?, ?, ?, ?, ?)""",
                 [ruleset_name, filter_name, description, None, 'N']
             )
+            progress.append(f"created filter '{filter_name}'")
 
             # 2. Add classification criteria if provided
             if classification_criteria:
@@ -308,6 +336,7 @@ async def create_filter(
                             'N'
                         ]
                     )
+                    progress.append(f"added classification {criteria['type']}={criteria['value']}")
 
             # 3. Enable filter in default state
             logger.info(f"Enabling filter in DEFAULT state with action '{action}'")
@@ -315,6 +344,7 @@ async def create_filter(
                 """CALL TDWM.TDWMAddLimitForRuleState(?, ?, ?, ?, ?, ?, ?)""",
                 [ruleset_name, filter_name, 'DEFAULT', 'Default filter action', None, action, 'N']
             )
+            progress.append(f"set DEFAULT state action '{action}'")
 
             # 4. Enable the filter rule
             logger.info(f"Enabling filter {filter_name}")
@@ -322,6 +352,7 @@ async def create_filter(
                 """CALL TDWM.TDWMManageRule(?, ?, ?)""",
                 [ruleset_name, filter_name, 'E']
             )
+            progress.append("enabled the filter")
 
             # 5. Activate ruleset
             logger.info(f"Activating ruleset {ruleset_name}")
@@ -329,6 +360,7 @@ async def create_filter(
                 """CALL TDWM.TDWMActivateRuleset(?)""",
                 [ruleset_name]
             )
+            progress.append(f"activated ruleset '{ruleset_name}'")
 
             return format_text_response(
                 f"Successfully created and activated filter '{filter_name}'"
@@ -339,6 +371,15 @@ async def create_filter(
             raise
         except Exception as e:
             logger.error(f"Error creating filter: {e}")
+            if progress:
+                return format_error_response(
+                    "Failed to create filter after partial progress. "
+                    f"Completed steps: {'; '.join(progress)}. "
+                    f"Failed step {len(progress) + 1} of 5. "
+                    f"The ruleset '{ruleset_name}' may contain a partially configured "
+                    f"filter '{filter_name}' — inspect it, then delete it or complete "
+                    "the remaining steps and call activate_ruleset."
+                )
             return format_error_response("Failed to create filter. Check server logs for details.")
 
 
