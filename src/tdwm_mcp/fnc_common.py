@@ -18,6 +18,15 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any, Callable, List, Optional
 
+try:
+    import orjson
+
+    def _json_dumps(payload: Any) -> str:
+        return orjson.dumps(payload, default=str).decode()
+except ImportError:  # pragma: no cover - fallback when orjson is unavailable
+    def _json_dumps(payload: Any) -> str:
+        return json.dumps(payload, default=str, separators=(",", ":"))
+
 import mcp.types as types
 from .connection_manager import TeradataConnectionManager
 from .queryband import build_queryband
@@ -41,12 +50,14 @@ _transport = "stdio"
 _max_rows = 500
 _tool_timeout = 60.0
 _tool_timeout_write = 300.0
+_cache_ttl = 5.0
 
 
 def set_tools_connection(connection_manager, db: str, max_rows: int = None,
-                         tool_timeout: float = None, tool_timeout_write: float = None):
+                         tool_timeout: float = None, tool_timeout_write: float = None,
+                         cache_ttl: float = None):
     """Set the global database connection manager and database name."""
-    global _connection_manager, _db, _max_rows, _tool_timeout, _tool_timeout_write
+    global _connection_manager, _db, _max_rows, _tool_timeout, _tool_timeout_write, _cache_ttl
     _connection_manager = connection_manager
     _db = db
     if max_rows is not None:
@@ -55,11 +66,18 @@ def set_tools_connection(connection_manager, db: str, max_rows: int = None,
         _tool_timeout = tool_timeout
     if tool_timeout_write is not None:
         _tool_timeout_write = tool_timeout_write
+    if cache_ttl is not None:
+        _cache_ttl = cache_ttl
 
 
 def get_tool_timeouts() -> tuple[float, float]:
     """Return (read_timeout, write_timeout) deadlines in seconds."""
     return _tool_timeout, _tool_timeout_write
+
+
+def get_cache_ttl() -> float:
+    """TTL for the hot-read micro-cache in seconds (0 = disabled)."""
+    return _cache_ttl
 
 
 def set_transport(transport: str):
@@ -184,7 +202,7 @@ def rows_to_json(cur, max_rows: int = None, empty_message: str = None) -> str:
             f"Result truncated to {limit} rows. "
             "Narrow the query or raise MAX_ROWS if more are needed."
         )
-    return json.dumps(payload, default=str, separators=(",", ":"))
+    return _json_dumps(payload)
 
 
 def format_rows_response(cur, max_rows: int = None, empty_message: str = None) -> ResponseType:

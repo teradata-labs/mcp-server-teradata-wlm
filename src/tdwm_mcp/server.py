@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from starlette.applications import Starlette
 from mcp.server.sse import SseServerTransport
 from starlette.requests import Request
@@ -362,6 +363,15 @@ async def main():
 
     # Load settings once from environment
     _settings = settings_from_env()
+
+    # Size the default executor explicitly: every DB call occupies one worker
+    # thread, and the CPython default caps at min(32, cpu+4) — raising
+    # DB_POOL_SIZE past that would silently queue DB work behind the cap.
+    executor = ThreadPoolExecutor(
+        max_workers=_settings.pool_size + 8,
+        thread_name_prefix="tdwm-db",
+    )
+    asyncio.get_running_loop().set_default_executor(executor)
 
     # Set transport for per-tool QueryBand
     set_transport(_settings.mcp_transport)

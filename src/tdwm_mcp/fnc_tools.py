@@ -6,6 +6,7 @@ Each function implements a specific TDWM operation and returns properly formatte
 """
 
 import asyncio
+import json
 import logging
 import time
 from typing import Any, List
@@ -14,6 +15,7 @@ import mcp.types as types
 from .tdwm_static import TDWM_CLASIFICATION_TYPE
 from .oauth_context import require_oauth_authorization, get_oauth_error
 from . import metrics
+from .cache import TTLCache
 from .retry_utils import categorize_operation
 
 # Import shared utilities from common module
@@ -28,7 +30,8 @@ from .fnc_common import (
     set_tools_connection,
     set_transport,
     with_connection_retry,
-    get_tool_timeouts
+    get_tool_timeouts,
+    get_cache_ttl
 )
 
 # Import Priority 1 Configuration Management tools
@@ -49,6 +52,30 @@ from .fnc_tools_priority1 import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Metadata-ish read tools worth caching for a few seconds: dashboards and
+# agents hammer these, and the data changes on configuration timescales.
+# Live monitoring tools (sessions, AMP load, delay queues) are NOT cached.
+CACHEABLE_TOOLS = frozenset({
+    "list_WD",
+    "list_active_WD",
+    "list_rulesets",
+    "monitor_config",
+    "show_cod_limits",
+    "tdwm_list_clasification",
+    "list_utility_stats",
+})
+
+_tool_cache = TTLCache()
+
+
+def _is_cacheable_result(result) -> bool:
+    """Cache only successful tool output — never error or empty-dispatch results."""
+    if not result:
+        return False
+    first = result[0]
+    text = getattr(first, "text", "")
+    return not text.startswith("Error:")
 
 
 # --- TDWM Tool Functions ---
@@ -1464,15 +1491,31 @@ async def handle_tool_call(
         return [types.TextContent(type="text", text=f"Authorization Error: {error_msg}")]
 
     read_timeout, write_timeout = get_tool_timeouts()
-    deadline = read_timeout if categorize_operation(name) == "read" else write_timeout
+    category = categorize_operation(name)
+    deadline = read_timeout if category == "read" else write_timeout
+    cache_ttl = get_cache_ttl()
     start = time.monotonic()
     outcome = "success"
     try:
         async with asyncio.timeout(deadline):
-            result = await _dispatch_tool(name, arguments)
+            if cache_ttl > 0 and name in CACHEABLE_TOOLS:
+                key = (name, json.dumps(arguments or {}, sort_keys=True, default=str))
+                result = await _tool_cache.get_or_compute(
+                    key,
+                    lambda: _dispatch_tool(name, arguments),
+                    ttl=cache_ttl,
+                    cacheable=_is_cacheable_result,
+                    on_hit=lambda: metrics.TOOL_CACHE_HITS.labels(tool=name).inc(),
+                )
+            else:
+                result = await _dispatch_tool(name, arguments)
         if result is None:
             outcome = "unsupported"
             return [types.TextContent(type="text", text=f"Unsupported tool: {name}")]
+        if category != "read":
+            # A config change may invalidate cached metadata (rulesets,
+            # workloads, limits) — drop it so the next read is fresh.
+            _tool_cache.invalidate()
         return result
 
     except TimeoutError:

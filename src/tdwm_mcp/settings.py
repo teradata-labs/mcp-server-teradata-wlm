@@ -26,6 +26,9 @@ class Settings:
     # Result limits
     max_rows: int = 500
 
+    # TTL for the hot-read micro-cache (seconds); 0 disables caching
+    cache_ttl: float = 5.0
+
     # Per-request deadlines (seconds)
     tool_timeout: float = 60.0        # read/monitor tools and resources
     tool_timeout_write: float = 300.0  # config-change tools
@@ -63,6 +66,7 @@ def settings_from_env() -> Settings:
         pool_acquire_timeout=float(os.getenv("POOL_ACQUIRE_TIMEOUT", "5.0")),
         pool_warm=int(os.getenv("POOL_WARM", "-1")),
         max_rows=int(os.getenv("MAX_ROWS", "500")),
+        cache_ttl=float(os.getenv("CACHE_TTL", "5.0")),
         tool_timeout=float(os.getenv("TOOL_TIMEOUT", "60.0")),
         tool_timeout_write=float(os.getenv("TOOL_TIMEOUT_WRITE", "300.0")),
         logmech=os.getenv("DB_LOGMECH", "TD2"),

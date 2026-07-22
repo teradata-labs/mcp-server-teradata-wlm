@@ -29,6 +29,12 @@ RESOURCE_READS = Counter(
     ["outcome"],  # outcome: success|error|timeout
 )
 
+TOOL_CACHE_HITS = Counter(
+    "tdwm_mcp_tool_cache_hits_total",
+    "Tool calls served from the TTL cache or coalesced via single-flight",
+    ["tool"],
+)
+
 # --- Connection pool ---
 
 POOL_IN_USE = Gauge(
